@@ -1,36 +1,36 @@
-# OCR integration plan — Issue #8
+# Local OCR integration — Issue #8
 
-Status: **DESIGN / NOT QUALIFIED**. This file is a proposal, not proof of OCR availability.
+Status: **IMPLEMENTED ON PR #9; OFFLINE CI PASS; LIVE OCR NOT YET QUALIFIED** (2026-10-24).
 
-## Current state
+## Decision and boundaries
 
-- `openhands-sandbox` has no independent OCR workflow on its default branch.
-- `agent-workflow-lab` contains the qualified `independent-code-review.yml`, `review_decision.py` and repository-specific `.opencodereview/rule.json`.
-- PR #7 is held at `b65b73fc549c06cf51b6c567241c313647d59a63`; CI and human UAT are PASS. **Do not push to PR #7** to introduce OCR.
-- The active `Protect main from agents` ruleset requires an approving review, including last-push approval; OCR does not replace a human approver.
+- `TsinjoOps/agent-workflow-lab` is private and `TsinjoOps/openhands-sandbox` is public; a public workflow cannot directly call the private reusable workflow. **Use local OCR integration in the public sandbox**, approved by the project owner. Do not add a shared caller.
+- The local `.github/workflows/independent-code-review.yml` and `review_decision.py` originate from the qualified lab mechanism. The review policy is adapted locally in `.opencodereview/rule.json` for Frappe v16.50.
+- OCR is explicitly triggered by an authorized collaborator posting exactly `/open-code-review` on a same-repository PR. A producer push only invalidates a previous decision; it does not trigger a paid review.
+- `OPENROUTER_API_KEY` is a repository Actions secret, configured by the owner (reported 2026-10-24). Its **runtime accessibility has not yet been verified**; never print or commit its value.
+- The OCR action and evaluator are pinned; `OCR_NO_UPDATE=1`. The configured model is `qwen/qwen3.8-27b`; token budget is 200,000, and budget exhaustion/incomplete evidence must yield BLOCKED.
+- OCR results are independent COMMENT-style review evidence, **not an approving human review**, merge authority, deployment authority or UAT.
+- Trusted evaluator checkout uses the default-branch workflow SHA, not PR-controlled code. Fork PRs are rejected. A current-head mismatch yields STALE.
 
-## Preferred design
+## Evidence and status
 
-1. **Visibility gate (verified 2026-10-24):** `agent-workflow-lab` is PRIVATE and `openhands-sandbox` is PUBLIC. A public caller cannot directly use a private reusable workflow. Do not wire the public caller to the private repository. Prefer a small public, version-pinned, secret-free preflight component or keep the preflight local; keep the sensitive reviewer implementation/policy private. Validate the final topology before any paid review.\n2. **Shared reviewer policy:** extract the qualified OCR workflow/evaluator into a version-pinned reusable workflow or action owned by `agent-workflow-lab`. This requires a separate reviewed change there. The calling repository must not checkout/execute PR-controlled scripts with `OPENROUTER_API_KEY`.
-3. **Local trigger:** minimal `issue_comment` workflow on `openhands-sandbox/main`, accepting only exact `/open-code-review` from authorized collaborators on same-repository PRs; delegate to the trusted, pinned reviewer. Verify that reusable-workflow event context, PR number, head SHA, and permission model remain correct before implementation.
-4. **Local review rules:** scoped `.opencodereview/rule.json` covering Frappe DocType schema/validation, composite uniqueness and race handling, migrations, tests, packaging, privilege boundaries and evidence claims. Do not copy the lab's unrelated path rules.
-5. **Secret:** verify `OPENROUTER_API_KEY` is configured for the calling workflow without printing it. GitHub repository secrets are not automatically shared across repositories. If absent, stop before invoking OCR.
-6. **Cost:** one explicitly triggered review, no LLM on pushes, a bounded per-run budget appropriate to this small diff, with incomplete/budget-exceeded reviews classified BLOCKED rather than PASS.
-7. **Fail-closed:** independently validate structured evidence, exact reviewed/current SHA, complete coverage, no material findings, successful GitHub publication, and STALE on a new push. Preserve PASS/FAIL/BLOCKED/STALE semantics.
-8. **Human boundary:** OCR publishes a COMMENT-style review/decision only; a separate authorized human must APPROVE before merging.
+- PR #9: https://github.com/TsinjoOps/openhands-sandbox/pull/9 — draft pending human review and merge.
+- Offline workflows `ocr-preflight` and `ocr-decision-tests`: PASS on `896a512620dea6311a7f05b7c3ea81c6e08444fd` (before this documentation change). They test negative metadata cases, evaluator failure behavior and static guard presence; **they do not demonstrate a real OCR run or live secret access**.
+- PR #7: https://github.com/TsinjoOps/openhands-sandbox/pull/7 — candidate SHA `b65b73fc549c06cf51b6c567241c313647d59a63`, CI and human UAT PASS; OCR not yet executed. Do not push or merge it to bootstrap OCR.
+- Private lab PR #127 proposed a reusable workflow but cannot be consumed by this public repository. Treat that proposal as superseded for this sandbox; do not merge it as a dependency.
 
-## Implementation gates
+## Release gates
 
-- [x] Verify repository visibility: private-to-public reusable workflow is blocked. Do not attempt that caller.\n- [ ] Choose public safe component or local preflight and verify event/secret semantics with a non-LLM test.
-- [ ] Qualify shared component in `agent-workflow-lab` without regressing its existing workflow.
-- [ ] Add minimal pinned caller and scoped rules to this branch; validate YAML and permissions.
-- [ ] Test no-secret, invalid-command, unauthorized-actor, stale-SHA and incomplete-evidence paths without an LLM call.
-- [ ] Verify secret availability privately, then explicitly authorize one paid OCR run.
-- [ ] Confirm OCR decision on the exact head SHA of PR #7; keep the original UAT SHA intact.
-- [ ] Obtain independent human approval under the active ruleset.
+- [x] Confirm public/private visibility and select local integration.
+- [x] Add local review workflow, fail-closed evaluator and Frappe-specific rules.
+- [x] Add offline tests; confirm two green checks on commit `896a5126`.
+- [x] Owner reports GitHub Actions secret created; value never shared.
+- [ ] Review final diff and latest CI; resolve any workflow or documentation inconsistencies.
+- [ ] Mark PR #9 Ready for review, obtain independent human APPROVE, then merge under ruleset.
+- [ ] Confirm installed default-branch workflow and secret availability in a controlled run; authorize the first paid OCR run explicitly.
+- [ ] Run `/open-code-review` on PR #7 only after authorization, and validate exact SHA, complete coverage, publication and PASS/FAIL/BLOCKED/STALE.
+- [ ] Keep human approval, UAT and merge as separate controls.
 
-## Rejected shortcut
+## Scope exclusions
 
-Do **not** copy the 25 KB workflow into this repository without its evaluator and tests, weaken the `main` ruleset, or treat a green CI check as an OCR PASS.
-
-Reference: https://github.com/TsinjoOps/openhands-sandbox/issues/8
+No VPS work, no cross-repository secret sharing, no automatic paid review on push, no change to PR #7, and no claim that offline CI proves OCR PASS.
