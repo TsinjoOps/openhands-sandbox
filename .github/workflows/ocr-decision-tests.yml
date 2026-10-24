@@ -7,6 +7,7 @@ on:
       - review_decision.py
       - tests/test_review_decision_smoke.py
       - .github/workflows/ocr-decision-tests.yml
+      - .github/workflows/independent-code-review.yml
 
 permissions:
   contents: read
@@ -24,3 +25,24 @@ jobs:
           python-version: '3.14'
       - name: Run evaluator smoke tests (offline)
         run: python -m unittest discover -s tests -p 'test_review_decision_smoke.py' -v
+      - name: Verify OCR workflow safety guards (offline)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          workflow = Path(".github/workflows/independent-code-review.yml").read_text()
+          guards = [
+              "github.event.comment.body == '/open-code-review'",
+              "github.event.comment.user.type != 'Bot'",
+              "Enforce same-repository review target",
+              "OPENROUTER_SECRET_PRESENT",
+              "secrets.OPENROUTER_API_KEY != ''",
+              "ref: ${{ github.sha }}",
+              "persist-credentials: false",
+              "Last-moment latest-SHA guard",
+              "test \"${DECISION_STATE:-BLOCKED}\" = \"PASS\"",
+          ]
+          missing = [guard for guard in guards if guard not in workflow]
+          if missing:
+              raise SystemExit(f"Missing OCR safety guards: {missing}")
+          print(f"OCR workflow static safety guards: {len(guards)}/{len(guards)} PASS")
+          PY
