@@ -36,7 +36,7 @@ jobs:
               "Enforce same-repository review target",
               "OPENROUTER_SECRET_PRESENT",
               "secrets.OPENROUTER_API_KEY != ''",
-              "ref: ${{ github.sha }}",
+              "ref: " + chr(36) + "{{ github.sha }}",
               "persist-credentials: false",
               "Last-moment latest-SHA guard",
               "test \"${DECISION_STATE:-BLOCKED}\" = \"PASS\"",
