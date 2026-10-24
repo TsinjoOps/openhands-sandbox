@@ -1,0 +1,45 @@
+name: OCR preflight (no LLM)
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  ocr-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify same-repository PR and current SHA
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_REPO: ${{ github.repository }}
+        with:
+          script: |
+            const prNumber = context.payload.pull_request?.number;
+            const expected = process.env.EXPECTED_SHA;
+            const repo = process.env.EXPECTED_REPO;
+            if (!Number.isSafeInteger(prNumber) || prNumber < 1 ||
+                !/^[0-9a-f]{40}$/.test(expected)) {
+              core.setFailed('BLOCKED: invalid PR number or expected SHA');
+              return;
+            }
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            if (pr.state !== 'open' || pr.head.repo?.full_name !== repo) {
+              core.setFailed('BLOCKED: closed PR or external fork');
+              return;
+            }
+            if (pr.head.sha !== expected) {
+              core.setFailed('BLOCKED: stale PR SHA');
+              return;
+            }
+            core.info('PRECHECK_PASS (not OCR PASS): same-repo PR and SHA verified');
