@@ -220,7 +220,7 @@ jobs:
           uv pip install --python env/bin/python unittest-xml-reporting==3.2.0
           cp -a "$GITHUB_WORKSPACE/poc_work_assignment" apps/poc_work_assignment
           uv pip install --python env/bin/python --no-deps -e apps/poc_work_assignment
-          printf '%s\n' poc_work_assignment >> sites/apps.txt
+          printf '%s\n' frappe poc_work_assignment > sites/apps.txt
           python - <<'PY'
           import json
           from pathlib import Path
