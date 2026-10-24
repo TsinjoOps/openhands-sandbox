@@ -153,6 +153,16 @@ jobs:
             exit 1
           fi
 
+      - name: Check OpenRouter secret is configured (no value disclosure)
+        env:
+          OPENROUTER_SECRET_PRESENT: ${{ secrets.OPENROUTER_API_KEY != '' }}
+        run: |
+          set -euo pipefail
+          if [ "${OPENROUTER_SECRET_PRESENT}" != "true" ]; then
+            echo "::error::BLOCKED: OPENROUTER_API_KEY is not configured for this repository or workflow."
+            exit 1
+          fi
+
       - name: Resolve safe checkpoint policy
         id: checkpoint_policy
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
