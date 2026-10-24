@@ -1,0 +1,585 @@
+name: Independent code review — OpenCodeReview
+
+on:
+  issue_comment:
+    types: [created]
+  # Metadata-only stale invalidation. pull_request_target deliberately loads
+  # this workflow from the trusted default branch; the invalidate job never
+  # checks out or executes PR-controlled code.
+  pull_request_target:
+    types: [synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  # Bump when PASS/FAIL/BLOCKED/STALE semantics change. Incremental reuse
+  # requires the prior PASS marker to carry this exact policy version.
+  REVIEW_DECISION_POLICY: v1
+
+concurrency:
+  group: opencodereview-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  invalidate:
+    if: >-
+      github.event_name == 'pull_request_target'
+      && github.event.action == 'synchronize'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Mark prior independent-review decision stale
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const marker = '<!-- ocr-decision-status -->';
+            const prNumber = context.payload.pull_request.number;
+            const currentHead = context.payload.pull_request.head.sha;
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+
+            const prior = [...reviews].reverse().find((review) => {
+              const login = review.user?.login || '';
+              return (login === 'github-actions[bot]' || login === 'github-actions')
+                && (review.body || '').includes(marker);
+            });
+
+            if (!prior) {
+              core.info('No prior OCR decision review exists; nothing to invalidate.');
+              return;
+            }
+
+            const reviewedMatch = (prior.body || '').match(
+              /<!-- ocr-reviewed-sha:([0-9a-f]{40}) -->/
+            );
+            const stateMatch = (prior.body || '').match(
+              /<!-- ocr-decision-state:([A-Z_]+) -->/
+            );
+            const priorStateMatch = (prior.body || '').match(
+              /<!-- ocr-prior-state:([A-Z_]+) -->/
+            );
+            const policyMatch = (prior.body || '').match(
+              /<!-- ocr-decision-policy:([A-Za-z0-9._/-]+) -->/
+            );
+            const reviewedHead = reviewedMatch ? reviewedMatch[1] : 'unknown';
+            const priorPolicy = policyMatch ? policyMatch[1] : 'unknown';
+            const previousState = priorStateMatch
+              ? priorStateMatch[1]
+              : (stateMatch ? stateMatch[1] : 'UNKNOWN');
+
+            if (reviewedHead === currentHead) {
+              core.info('Prior decision already targets the current PR head.');
+              return;
+            }
+
+            const body = [
+              marker,
+              '<!-- ocr-decision-state:STALE -->',
+              `<!-- ocr-prior-state:${previousState} -->`,
+              `<!-- ocr-decision-policy:${priorPolicy} -->`,
+              `<!-- ocr-reviewed-sha:${reviewedHead} -->`,
+              `<!-- ocr-current-sha:${currentHead} -->`,
+              '## ⚪ Independent review decision — STALE',
+              '',
+              `The PR head changed from \`${reviewedHead}\` to \`${currentHead}\`.`,
+              '',
+              'The previous independent-review decision no longer qualifies.',
+              'Run `/open-code-review` after the producer changes are ready.',
+              '',
+              'No LLM review was launched by this invalidation event.',
+            ].join('\n');
+
+            await github.rest.pulls.updateReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              review_id: prior.id,
+              body,
+            });
+
+            await core.summary
+              .addHeading('Independent review decision')
+              .addRaw(`STALE — new PR head ${currentHead}; fresh review required.`)
+              .write();
+
+  review:
+    if: >-
+      github.event_name == 'issue_comment'
+      && github.event.issue.pull_request
+      && github.event.comment.user.type != 'Bot'
+      && (
+        github.event.comment.author_association == 'OWNER'
+        || github.event.comment.author_association == 'MEMBER'
+        || github.event.comment.author_association == 'COLLABORATOR'
+      )
+      && github.event.comment.body == '/open-code-review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Resolve pull request context
+        id: pr
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const prNumber = context.issue.number;
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            core.setOutput('base_ref', pullRequest.base.ref);
+            core.setOutput('head_sha', pullRequest.head.sha);
+            core.setOutput('head_repo', pullRequest.head.repo.full_name);
+
+      - name: Enforce same-repository review target
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          OBSERVED_HEAD_REPOSITORY: ${{ steps.pr.outputs.head_repo }}
+        run: |
+          set -euo pipefail
+
+          if [ "$OBSERVED_HEAD_REPOSITORY" != "$EXPECTED_REPOSITORY" ]; then
+            echo "Refusing external/fork PR review in the initial TsinjoOps bootstrap." >&2
+            exit 1
+          fi
+
+      - name: Resolve safe checkpoint policy
+        id: checkpoint_policy
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          TARGET_SHA: ${{ steps.pr.outputs.head_sha }}
+          EXPECTED_POLICY: ${{ env.REVIEW_DECISION_POLICY }}
+        with:
+          script: |
+            const marker = '<!-- ocr-decision-status -->';
+            const target = process.env.TARGET_SHA;
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const prior = [...reviews].reverse().find((review) => {
+              const login = review.user?.login || '';
+              return (login === 'github-actions[bot]' || login === 'github-actions')
+                && (review.body || '').includes(marker);
+            });
+
+            let allowed = false;
+            let sourceSha = '';
+            let sourceState = 'NONE';
+
+            if (prior) {
+              const body = prior.body || '';
+              const reviewedMatch = body.match(
+                /<!-- ocr-reviewed-sha:([0-9a-f]{40}) -->/
+              );
+              const stateMatch = body.match(
+                /<!-- ocr-decision-state:([A-Z_]+) -->/
+              );
+              const priorStateMatch = body.match(
+                /<!-- ocr-prior-state:([A-Z_]+) -->/
+              );
+              const policyMatch = body.match(
+                /<!-- ocr-decision-policy:([A-Za-z0-9._/-]+) -->/
+              );
+
+              sourceSha = reviewedMatch ? reviewedMatch[1] : '';
+              const sourcePolicy = policyMatch ? policyMatch[1] : 'UNKNOWN';
+              const visibleState = stateMatch ? stateMatch[1] : 'UNKNOWN';
+              sourceState = priorStateMatch ? priorStateMatch[1] : visibleState;
+
+              // Reuse is safe only from a previously qualifying PASS on an
+              // older SHA. FAIL/BLOCKED never become incremental baselines.
+              allowed = sourceState === 'PASS'
+                && sourcePolicy === process.env.EXPECTED_POLICY
+                && sourceSha !== ''
+                && sourceSha !== target;
+            }
+
+            core.setOutput('checkpoint_reuse', allowed ? 'true' : 'false');
+            core.setOutput('full_review', allowed ? 'false' : 'true');
+            core.setOutput('source_sha', sourceSha);
+            core.setOutput('source_state', sourceState);
+            core.info(
+              allowed
+                ? `Incremental OCR allowed from prior PASS ${sourceSha}.`
+                : `Full OCR required; prior decision state is ${sourceState}.`
+            );
+
+      - name: Publish independent-review progress
+        id: status_review
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          TARGET_SHA: ${{ steps.pr.outputs.head_sha }}
+          CHECKPOINT_REUSE: ${{ steps.checkpoint_policy.outputs.checkpoint_reuse }}
+          CHECKPOINT_SOURCE: ${{ steps.checkpoint_policy.outputs.source_sha }}
+          DECISION_POLICY: ${{ env.REVIEW_DECISION_POLICY }}
+        with:
+          script: |
+            const marker = '<!-- ocr-decision-status -->';
+            const prNumber = context.issue.number;
+            const target = process.env.TARGET_SHA;
+            const incremental = process.env.CHECKPOINT_REUSE === 'true';
+            const scope = incremental
+              ? `incremental eligible from prior PASS ${process.env.CHECKPOINT_SOURCE}`
+              : 'full review required by policy';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              '<!-- ocr-decision-state:IN_PROGRESS -->',
+              `<!-- ocr-decision-policy:${process.env.DECISION_POLICY} -->`,
+              `<!-- ocr-reviewed-sha:${target} -->`,
+              `<!-- ocr-current-sha:${target} -->`,
+              '## 🟡 Independent review — IN PROGRESS',
+              '',
+              `Target SHA: \`${target}\``,
+              `Scope: **${scope}**`,
+              '',
+              'OpenCodeReview is analysing the candidate. A producer push will cancel/invalidate this decision without launching another LLM review.',
+              '',
+              `[Open the live workflow run](${runUrl}) for detailed streamed progress.`,
+            ].join('\n');
+
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+            const prior = [...reviews].reverse().find((review) => {
+              const login = review.user?.login || '';
+              if (!((login === 'github-actions[bot]' || login === 'github-actions')
+                && (review.body || '').includes(marker))) {
+                return false;
+              }
+              const reviewedMatch = (review.body || '').match(
+                /<!-- ocr-reviewed-sha:([0-9a-f]{40}) -->/
+              );
+              return reviewedMatch && reviewedMatch[1] === target;
+            });
+
+            if (prior) {
+              await github.rest.pulls.updateReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                review_id: prior.id,
+                body,
+              });
+              core.setOutput('review_id', String(prior.id));
+            } else {
+              const { data: created } = await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                event: 'COMMENT',
+                body,
+              });
+              core.setOutput('review_id', String(created.id));
+            }
+
+      - name: Run independent OpenCodeReview
+        id: ocr
+        # SECURITY PIN NOTE:
+        # stream_progress below expands the workflow-log surface while the LLM
+        # credential is in scope. The pinned OCR revision currently redacts API
+        # keys/sensitive headers and keeps credentials out of review output.
+        # Any future SHA bump MUST re-verify that redaction and the exact
+        # human-audience stderr/progress content before updating this pin.
+        uses: alibaba/open-code-review@182898cf522da3d04157b422752d028417974e19
+        env:
+          # The OCR CLI is version-pinned below. Its npm launcher otherwise
+          # starts a detached self-updater on every invocation; upstream issue
+          # #703 documents a non-atomic global reinstall window where the
+          # `ocr` launcher/native binary can disappear between commands.
+          # Disable that updater in CI so the reviewed toolchain cannot mutate
+          # underneath a run and the pinned version remains reproducible.
+          OCR_NO_UPDATE: '1'
+        with:
+          llm_url: https://openrouter.ai/api/v1
+          llm_auth_token: ${{ secrets.OPENROUTER_API_KEY }}
+          llm_model: qwen/qwen3.8-27b
+          llm_use_anthropic: 'false'
+          # Pin the CLI version independently from the composite-action SHA so
+          # model cost/coverage behavior cannot drift silently between reviews.
+          ocr_version: '1.13.0'
+          base_ref: ${{ steps.pr.outputs.base_ref }}
+          head_sha: ${{ steps.pr.outputs.head_sha }}
+          effort: medium
+          # Per-request LLM timeout, in seconds: 600s = 10 minutes.
+          llm_timeout: '600'
+          # Per selected-file review task timeout, in minutes.
+          # Keep the hierarchy: 10m LLM request < 30m review task < 60m job.
+          review_task_timeout: '30'
+          # Sandbox cost brake: lower than the lab's qualified 800k ceiling.
+          # Incomplete reviews MUST be BLOCKED, never PASS; adjust only with evidence.
+          max_tokens_budget: '200000'
+          stream_progress: 'true'
+          upload_artifacts: 'true'
+          sticky_summary: 'true'
+          # Always record a completed run's checkpoint. Reuse is controlled
+          # separately: only a prior PASS may disable full_review.
+          checkpoint_range: 'true'
+          full_review: ${{ steps.checkpoint_policy.outputs.full_review }}
+          background: >-
+            Review this isolated Frappe v16.50 proof-of-concept pull-request diff independently. Prioritize correctness,
+            security, secret handling, least privilege, authority boundaries, data
+            integrity, maintainability, observability, recovery behavior, and evidence
+            integrity. Honor path-specific project review rules when present. Flag
+            unjustified authority expansion, credential persistence, unsupported PASS
+            claims, and operational risks. Do not assume merge or deploy authority exists.
+
+      - name: Resolve current pull request head
+        if: always()
+        id: current_pr
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput('head_sha', pullRequest.head.sha);
+
+      - name: Checkout trusted decision evaluator
+        if: always()
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # issue_comment workflows execute the trusted default-branch workflow;
+          # github.sha therefore identifies the exact trusted revision that
+          # defined this run. Never execute the evaluator from PR-controlled code.
+          ref: ${{ github.sha }}
+          path: .trusted-review-policy
+          persist-credentials: false
+          sparse-checkout: |
+            review_decision.py
+          sparse-checkout-cone-mode: false
+
+      - name: Evaluate latest-SHA independent-review decision
+        if: always()
+        id: decision
+        env:
+          EXPECTED_HEAD: ${{ steps.pr.outputs.head_sha }}
+          CURRENT_HEAD: ${{ steps.current_pr.outputs.head_sha }}
+          OCR_OUTCOME: ${{ steps.ocr.outcome }}
+          COMMENTS_FAILED: ${{ steps.ocr.outputs.comments_failed }}
+          CHECKPOINT_AFTER: ${{ steps.ocr.outputs.checkpoint_after }}
+          DECISION_POLICY: ${{ env.REVIEW_DECISION_POLICY }}
+        run: |
+          set -euo pipefail
+
+          if [ "$OCR_OUTCOME" = "success" ] && [ -z "${COMMENTS_FAILED:-}" ]; then
+            echo "OCR succeeded but comments_failed output is missing; fail closed." >&2
+            comments_failed="-1"
+          else
+            comments_failed="${COMMENTS_FAILED:-0}"
+          fi
+
+          python .trusted-review-policy/review_decision.py \
+            --result /tmp/ocr-result.json \
+            --expected-head "$EXPECTED_HEAD" \
+            --current-head "$CURRENT_HEAD" \
+            --ocr-outcome "$OCR_OUTCOME" \
+            --comments-failed "$comments_failed" \
+            --checkpoint-after "${CHECKPOINT_AFTER:-}" \
+            --policy-version "$DECISION_POLICY" \
+            --output-json /tmp/review-decision.json \
+            --output-markdown /tmp/review-decision.md
+
+          cat /tmp/review-decision.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish final independent-review decision
+        if: always()
+        id: final_status
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          REVIEW_ID: ${{ steps.status_review.outputs.review_id }}
+          DECISION_POLICY: ${{ env.REVIEW_DECISION_POLICY }}
+        with:
+          script: |
+            const fs = require('fs');
+            const prNumber = context.issue.number;
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let decision = null;
+            let body = '';
+
+            try {
+              decision = JSON.parse(fs.readFileSync('/tmp/review-decision.json', 'utf8'));
+              body = fs.readFileSync('/tmp/review-decision.md', 'utf8');
+            } catch (error) {
+              decision = {
+                state: 'BLOCKED',
+                reviewed_sha: 'unknown',
+                current_sha: 'unknown',
+                reasons: [`Decision evidence could not be generated: ${error.message}`],
+              };
+              body = [
+                '<!-- ocr-decision-status -->',
+                '<!-- ocr-decision-state:BLOCKED -->',
+                `<!-- ocr-decision-policy:${process.env.DECISION_POLICY} -->`,
+                '<!-- ocr-reviewed-sha:unknown -->',
+                '<!-- ocr-current-sha:unknown -->',
+                '## ⛔ Independent review decision — BLOCKED',
+                '',
+                decision.reasons[0],
+              ].join('\n');
+              fs.writeFileSync('/tmp/review-decision.json', JSON.stringify(decision, null, 2) + '\n');
+              fs.writeFileSync('/tmp/review-decision.md', body);
+            }
+
+            // Last-moment latest-SHA guard: close the race between the earlier
+            // evaluator query and publication of a PASS/FAIL/BLOCKED decision.
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const liveHead = pullRequest.head.sha;
+            const decisionHead = decision.current_sha || decision.reviewed_sha || '';
+
+            if (/^[0-9a-f]{40}$/.test(decisionHead) && liveHead !== decisionHead) {
+              const reviewed = decision.reviewed_sha || decisionHead || 'unknown';
+              const previousState = decision.state || 'UNKNOWN';
+              decision.state = 'STALE';
+              decision.current_sha = liveHead;
+              decision.reasons = [
+                `PR head changed to ${liveHead} after decision evaluation for ${decisionHead}`,
+              ];
+              body = [
+                '<!-- ocr-decision-status -->',
+                '<!-- ocr-decision-state:STALE -->',
+                `<!-- ocr-prior-state:${previousState} -->`,
+                `<!-- ocr-decision-policy:${decision.policy_version || process.env.DECISION_POLICY} -->`,
+                `<!-- ocr-reviewed-sha:${reviewed} -->`,
+                `<!-- ocr-current-sha:${liveHead} -->`,
+                '## ⚪ Independent review decision — STALE',
+                '',
+                `The PR head changed after evaluation. Reviewed/evaluated SHA: \`${decisionHead}\`; current SHA: \`${liveHead}\`.`,
+                '',
+                'A fresh `/open-code-review` is required.',
+              ].join('\n');
+              fs.writeFileSync('/tmp/review-decision.json', JSON.stringify(decision, null, 2) + '\n');
+              fs.writeFileSync('/tmp/review-decision.md', body);
+            }
+
+            body += `\n\n[Workflow evidence](${runUrl})`;
+
+            const reviewId = Number(process.env.REVIEW_ID || 0);
+            if (reviewId > 0) {
+              await github.rest.pulls.updateReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                review_id: reviewId,
+                body,
+              });
+            } else {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                event: 'COMMENT',
+                body,
+              });
+            }
+
+            core.setOutput('state', decision.state || 'BLOCKED');
+
+      - name: Normalize decision after publication
+        if: always()
+        id: normalized
+        env:
+          PUBLICATION_OUTCOME: ${{ steps.final_status.outcome }}
+          PUBLISHED_STATE: ${{ steps.final_status.outputs.state }}
+          DECISION_POLICY: ${{ env.REVIEW_DECISION_POLICY }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          json_path = Path("/tmp/review-decision.json")
+          md_path = Path("/tmp/review-decision.md")
+          publication = os.environ.get("PUBLICATION_OUTCOME", "")
+          published_state = os.environ.get("PUBLISHED_STATE", "")
+          policy = os.environ.get("DECISION_POLICY", "v1")
+
+          try:
+              decision = json.loads(json_path.read_text(encoding="utf-8"))
+          except Exception:
+              decision = {
+                  "state": "BLOCKED",
+                  "policy_version": policy,
+                  "reviewed_sha": "",
+                  "current_sha": "",
+                  "reasons": ["decision evidence unavailable after publication"],
+              }
+
+          state = published_state or "BLOCKED"
+          if publication != "success" or not published_state:
+              decision["state"] = "BLOCKED"
+              decision["policy_version"] = policy
+              reasons = list(decision.get("reasons") or [])
+              reasons.append(
+                  f"final GitHub decision publication outcome is {publication or 'unknown'}"
+              )
+              decision["reasons"] = reasons
+              state = "BLOCKED"
+
+              reviewed = decision.get("reviewed_sha") or "unknown"
+              current = decision.get("current_sha") or "unknown"
+              body = "\n".join([
+                  "<!-- ocr-decision-status -->",
+                  "<!-- ocr-decision-state:BLOCKED -->",
+                  f"<!-- ocr-decision-policy:{policy} -->",
+                  f"<!-- ocr-reviewed-sha:{reviewed} -->",
+                  f"<!-- ocr-current-sha:{current} -->",
+                  "## ⛔ Independent review decision — BLOCKED",
+                  "",
+                  f"Final GitHub decision publication failed with outcome {publication or 'unknown'}.",
+                  "",
+                  "The workflow cannot treat the review as PASS.",
+              ])
+              md_path.write_text(body + "\n", encoding="utf-8")
+
+          json_path.write_text(
+              json.dumps(decision, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"state={state}\n")
+          PY
+
+      - name: Persist review decision evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: review-decision-${{ steps.pr.outputs.head_sha }}-${{ github.run_id }}
+          path: |
+            /tmp/review-decision.json
+            /tmp/review-decision.md
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Enforce fail-closed review decision
+        if: always()
+        env:
+          DECISION_STATE: ${{ steps.normalized.outputs.state }}
+        run: |
+          set -euo pipefail
+          echo "Independent review decision: ${DECISION_STATE:-BLOCKED}"
+          test "${DECISION_STATE:-BLOCKED}" = "PASS"
