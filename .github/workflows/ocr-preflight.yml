@@ -1,0 +1,80 @@
+name: OCR preflight (no LLM)
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  ocr-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify same-repository PR and current SHA
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_REPO: ${{ github.repository }}
+        with:
+          script: |
+            // Deterministic negative-case tests: no API writes, no secrets, no LLM.
+            const check = ({ number, expected, repo, callerRepo, state, headRepo, headSha }) => {
+              if (repo !== callerRepo) return 'BLOCKED_REPOSITORY';
+              if (!Number.isSafeInteger(number) || number < 1 ||
+                  !/^[0-9a-f]{40}$/.test(expected)) return 'BLOCKED_INPUT';
+              if (state !== 'open' || headRepo !== repo) return 'BLOCKED_TARGET';
+              if (headSha !== expected) return 'BLOCKED_STALE';
+              return 'PRECHECK_PASS';
+            };
+            const sha = 'a'.repeat(40);
+            const valid = {
+              number: 9, expected: sha, repo: 'TsinjoOps/openhands-sandbox',
+              callerRepo: 'TsinjoOps/openhands-sandbox',
+              state: 'open', headRepo: 'TsinjoOps/openhands-sandbox',
+              headSha: sha,
+            };
+            const cases = [
+              ['valid', valid, 'PRECHECK_PASS'],
+              ['stale SHA', {...valid, headSha: 'b'.repeat(40)}, 'BLOCKED_STALE'],
+              ['external fork', {...valid, headRepo: 'other/fork'}, 'BLOCKED_TARGET'],
+              ['closed PR', {...valid, state: 'closed'}, 'BLOCKED_TARGET'],
+              ['wrong repository', {...valid, repo: 'other/repo'}, 'BLOCKED_REPOSITORY'],
+              ['invalid SHA', {...valid, expected: 'invalid'}, 'BLOCKED_INPUT'],
+              ['invalid number', {...valid, number: 0}, 'BLOCKED_INPUT'],
+            ];
+            for (const [name, input, wanted] of cases) {
+              const observed = check(input);
+              if (observed !== wanted) {
+                core.setFailed('Policy test failed: ' + name + ': ' + observed);
+                return;
+              }
+            }
+            core.info('Policy tests: 7/7 PASS (including six negative cases)');
+            const prNumber = context.payload.pull_request?.number;
+            const expected = process.env.EXPECTED_SHA;
+            const repo = process.env.EXPECTED_REPO;
+            if (!Number.isSafeInteger(prNumber) || prNumber < 1 ||
+                !/^[0-9a-f]{40}$/.test(expected)) {
+              core.setFailed('BLOCKED: invalid PR number or expected SHA');
+              return;
+            }
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const result = check({
+              number: prNumber, expected, repo,
+              callerRepo: context.repo.owner + '/' + context.repo.repo,
+              state: pr.state, headRepo: pr.head.repo?.full_name,
+              headSha: pr.head.sha,
+            });
+            if (result !== 'PRECHECK_PASS') {
+              core.setFailed(result);
+              return;
+            }
+            core.info('PRECHECK_PASS (not OCR PASS): same-repo PR and SHA verified');
