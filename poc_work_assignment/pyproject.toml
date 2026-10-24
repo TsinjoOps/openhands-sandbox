@@ -1,0 +1,15 @@
+[build-system]
+requires = ["flit_core>=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "poc_work_assignment"
+version = "0.0.1"
+description = "Minimal standalone Frappe work assignment POC"
+requires-python = ">=3.14,<3.15"
+readme = "README.md"
+license = {file = "license.txt"}
+dependencies = []
+
+[tool.bench.frappe-dependencies]
+frappe = ">=16.50.0,<17.0.0"

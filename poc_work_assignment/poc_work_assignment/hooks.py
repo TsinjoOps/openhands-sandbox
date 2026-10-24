@@ -1,0 +1,6 @@
+app_name = "poc_work_assignment"
+app_title = "POC Work Assignment"
+app_publisher = "POC Work Assignment Contributors"
+app_description = "Standalone synthetic employee work assignments"
+app_email = "maintainers@example.invalid"
+app_license = "MIT"
