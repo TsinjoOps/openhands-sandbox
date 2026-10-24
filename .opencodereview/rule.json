@@ -1,0 +1,46 @@
+{
+  "include": [
+    ".github/workflows/poc-frappe-ci.yml",
+    "poc_work_assignment/pyproject.toml",
+    "poc_work_assignment/poc_work_assignment/hooks.py",
+    "poc_work_assignment/poc_work_assignment/validation.py",
+    "poc_work_assignment/poc_work_assignment/poc_work_assignment/doctype/poc_work_assignment/poc_work_assignment.json",
+    "poc_work_assignment/poc_work_assignment/poc_work_assignment/doctype/poc_work_assignment/poc_work_assignment.py",
+    "poc_work_assignment/poc_work_assignment/poc_work_assignment/doctype/poc_work_assignment/test_poc_work_assignment.py",
+    "tests/test_validation.py"
+  ],
+  "rules": [
+    {
+      "path": "poc_work_assignment/poc_work_assignment/poc_work_assignment/doctype/poc_work_assignment/poc_work_assignment.json",
+      "rule": "Review Frappe v16 DocType schema, field types, required fields, role permissions, and database uniqueness constraints. Check consistency with Python validation and migrations; do not assume a UI-only duplicate check is race-safe."
+    },
+    {
+      "path": "poc_work_assignment/poc_work_assignment/poc_work_assignment/doctype/poc_work_assignment/poc_work_assignment.py",
+      "rule": "Review server-side permission boundaries, DocType lifecycle validation, duplicate prevention under concurrency, and correctness on Frappe v16.50. Flag unsafe assumptions about client-side validation or database uniqueness."
+    },
+    {
+      "path": "poc_work_assignment/poc_work_assignment/validation.py",
+      "rule": "Review employee/date/type validation and edge cases including malformed dates, missing employees, unsupported assignment types, and normalization. Verify consistency with the DocType."
+    },
+    {
+      "path": "poc_work_assignment/poc_work_assignment/poc_work_assignment/doctype/poc_work_assignment/test_poc_work_assignment.py",
+      "rule": "Review integration tests for installation, migration, permissions, duplicate creation, and updates on Frappe v16.50; distinguish tested from untested claims."
+    },
+    {
+      "path": "tests/test_validation.py",
+      "rule": "Review pure Python tests for negative cases and realistic business invariants; do not mistake these for Frappe integration tests."
+    },
+    {
+      "path": ".github/workflows/poc-frappe-ci.yml",
+      "rule": "Review CI pinning, least privilege, reproducible Frappe v16.50 integration, test isolation, secrets, and whether successful jobs support the stated claims."
+    },
+    {
+      "path": "poc_work_assignment/pyproject.toml",
+      "rule": "Review packaging, dependency constraints, and whether installed wheel and sdist contain required Frappe DocType resources."
+    },
+    {
+      "path": "poc_work_assignment/poc_work_assignment/hooks.py",
+      "rule": "Review app metadata and Frappe hook compatibility without assuming untested runtime behavior."
+    }
+  ]
+}
