@@ -1,0 +1,136 @@
+name: POC Frappe CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  poc-fast:
+    name: poc-fast
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14"
+
+      - name: Install CI tools
+        run: |
+          python --version
+          python -m pip install build==1.6.1 flit_core==3.12.0 ruff==0.17.2
+
+      - name: Run unit tests from source
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE/poc_work_assignment" python -m unittest discover -s tests -v
+
+      - name: Validate Python syntax and JSON/TOML
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          paths = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
+          for name in filter(None, paths):
+              path = Path(name)
+              if path.suffix == ".py":
+                  compile(path.read_text(), name, "exec")
+              elif path.suffix == ".json":
+                  json.loads(path.read_text())
+              elif path.suffix == ".toml":
+                  tomllib.loads(path.read_text())
+          print("Python syntax and JSON/TOML: PASS")
+          PY
+
+      - name: Build sdist and wheel from sdist
+        run: |
+          # Without format flags, build creates the wheel from the generated sdist.
+          python -m build --no-isolation --outdir "$RUNNER_TEMP/poc-dist" poc_work_assignment
+
+      - name: Check packaged Frappe resources
+        run: |
+          python - <<'PY'
+          import os
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          dist = Path(os.environ["RUNNER_TEMP"]) / "poc-dist"
+          sdist, = dist.glob("*.tar.gz")
+          wheel, = dist.glob("*.whl")
+          package = Path("poc_work_assignment/poc_work_assignment")
+          # Every source/resource file must survive both packaging stages unchanged.
+          resources = {
+              path.relative_to(package.parent).as_posix(): path.read_bytes()
+              for path in package.rglob("*")
+              if path.is_file() and path.suffix in {".py", ".json", ".txt"}
+          }
+          with tarfile.open(sdist) as archive:
+              prefix = sdist.name.removesuffix(".tar.gz") + "/"
+              for name, expected in resources.items():
+                  assert archive.extractfile(prefix + name).read() == expected, name
+              for name in ("pyproject.toml", "README.md", "license.txt"):
+                  expected = (package.parent / name).read_bytes()
+                  assert archive.extractfile(prefix + name).read() == expected, name
+          with zipfile.ZipFile(wheel) as archive:
+              for name, expected in resources.items():
+                  assert archive.read(name) == expected, name
+              licenses = [name for name in archive.namelist() if name.endswith("/license.txt")]
+              assert licenses, "Wheel license missing"
+              expected = (package.parent / "license.txt").read_bytes()
+              assert any(archive.read(name) == expected for name in licenses)
+          print(f"sdist and wheel: {len(resources)} package files verified")
+          PY
+
+      - name: Test installed wheel outside the repository
+        run: |
+          unset PYTHONPATH
+          python -m venv "$RUNNER_TEMP/poc-wheel-env"
+          wheel_python="$RUNNER_TEMP/poc-wheel-env/bin/python"
+          "$wheel_python" -m pip install --no-index --no-deps "$RUNNER_TEMP"/poc-dist/*.whl
+          mkdir -p "$RUNNER_TEMP/poc-wheel-tests"
+          cp tests/test_*.py "$RUNNER_TEMP/poc-wheel-tests/"
+          cd "$RUNNER_TEMP/poc-wheel-tests"
+          "$wheel_python" - <<'PY'
+          import sys
+          import unittest
+          from pathlib import Path
+
+          import poc_work_assignment
+          from poc_work_assignment import hooks, validation
+
+          installed = Path(poc_work_assignment.__file__).resolve()
+          assert installed.is_relative_to(Path(sys.prefix).resolve()), installed
+          assert hooks.app_name == "poc_work_assignment"
+          validation.validate_assignment("SYNTH-CI", "2026-10-21", "Office")
+          suite = unittest.defaultTestLoader.discover(".")
+          assert suite.countTestCases() == 3, "Expected three unit tests"
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() and not result.skipped else 1)
+          PY
+
+      - name: Ruff (informational)
+        continue-on-error: true
+        run: python -m ruff check --select E4,E7,E9,F,I,SIM poc_work_assignment tests
