@@ -11,17 +11,17 @@ Status: **DESIGN / NOT QUALIFIED**. This file is a proposal, not proof of OCR av
 
 ## Preferred design
 
-1. **Shared reviewer policy:** extract the qualified OCR workflow/evaluator into a version-pinned reusable workflow or action owned by `agent-workflow-lab`. This requires a separate reviewed change there. The calling repository must not checkout/execute PR-controlled scripts with `OPENROUTER_API_KEY`.
-2. **Local trigger:** minimal `issue_comment` workflow on `openhands-sandbox/main`, accepting only exact `/open-code-review` from authorized collaborators on same-repository PRs; delegate to the trusted, pinned reviewer. Verify that reusable-workflow event context, PR number, head SHA, and permission model remain correct before implementation.
-3. **Local review rules:** scoped `.opencodereview/rule.json` covering Frappe DocType schema/validation, composite uniqueness and race handling, migrations, tests, packaging, privilege boundaries and evidence claims. Do not copy the lab's unrelated path rules.
-4. **Secret:** verify `OPENROUTER_API_KEY` is configured for the calling workflow without printing it. GitHub repository secrets are not automatically shared across repositories. If absent, stop before invoking OCR.
-5. **Cost:** one explicitly triggered review, no LLM on pushes, a bounded per-run budget appropriate to this small diff, with incomplete/budget-exceeded reviews classified BLOCKED rather than PASS.
-6. **Fail-closed:** independently validate structured evidence, exact reviewed/current SHA, complete coverage, no material findings, successful GitHub publication, and STALE on a new push. Preserve PASS/FAIL/BLOCKED/STALE semantics.
-7. **Human boundary:** OCR publishes a COMMENT-style review/decision only; a separate authorized human must APPROVE before merging.
+1. **Visibility gate (verified 2026-10-24):** `agent-workflow-lab` is PRIVATE and `openhands-sandbox` is PUBLIC. A public caller cannot directly use a private reusable workflow. Do not wire the public caller to the private repository. Prefer a small public, version-pinned, secret-free preflight component or keep the preflight local; keep the sensitive reviewer implementation/policy private. Validate the final topology before any paid review.\n2. **Shared reviewer policy:** extract the qualified OCR workflow/evaluator into a version-pinned reusable workflow or action owned by `agent-workflow-lab`. This requires a separate reviewed change there. The calling repository must not checkout/execute PR-controlled scripts with `OPENROUTER_API_KEY`.
+3. **Local trigger:** minimal `issue_comment` workflow on `openhands-sandbox/main`, accepting only exact `/open-code-review` from authorized collaborators on same-repository PRs; delegate to the trusted, pinned reviewer. Verify that reusable-workflow event context, PR number, head SHA, and permission model remain correct before implementation.
+4. **Local review rules:** scoped `.opencodereview/rule.json` covering Frappe DocType schema/validation, composite uniqueness and race handling, migrations, tests, packaging, privilege boundaries and evidence claims. Do not copy the lab's unrelated path rules.
+5. **Secret:** verify `OPENROUTER_API_KEY` is configured for the calling workflow without printing it. GitHub repository secrets are not automatically shared across repositories. If absent, stop before invoking OCR.
+6. **Cost:** one explicitly triggered review, no LLM on pushes, a bounded per-run budget appropriate to this small diff, with incomplete/budget-exceeded reviews classified BLOCKED rather than PASS.
+7. **Fail-closed:** independently validate structured evidence, exact reviewed/current SHA, complete coverage, no material findings, successful GitHub publication, and STALE on a new push. Preserve PASS/FAIL/BLOCKED/STALE semantics.
+8. **Human boundary:** OCR publishes a COMMENT-style review/decision only; a separate authorized human must APPROVE before merging.
 
 ## Implementation gates
 
-- [ ] Verify reusable-workflow feasibility and event/secret semantics with a non-LLM test.
+- [x] Verify repository visibility: private-to-public reusable workflow is blocked. Do not attempt that caller.\n- [ ] Choose public safe component or local preflight and verify event/secret semantics with a non-LLM test.
 - [ ] Qualify shared component in `agent-workflow-lab` without regressing its existing workflow.
 - [ ] Add minimal pinned caller and scoped rules to this branch; validate YAML and permissions.
 - [ ] Test no-secret, invalid-command, unauthorized-actor, stale-SHA and incomplete-evidence paths without an LLM call.
