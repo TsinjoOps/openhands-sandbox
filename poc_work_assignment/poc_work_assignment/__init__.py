@@ -1,0 +1,1 @@
+"""Minimal Frappe POC application."""

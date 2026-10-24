@@ -1,0 +1,315 @@
+name: POC Frappe CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  poc-fast:
+    name: poc-fast
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14"
+
+      - name: Install CI tools
+        run: |
+          python --version
+          python -m pip install build==1.6.1 flit_core==3.12.0 ruff==0.17.2
+
+      - name: Run unit tests from source
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE/poc_work_assignment" python -m unittest discover -s tests -v
+
+      - name: Validate Python syntax and JSON/TOML
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          paths = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
+          for name in filter(None, paths):
+              path = Path(name)
+              if path.suffix == ".py":
+                  compile(path.read_text(), name, "exec")
+              elif path.suffix == ".json":
+                  json.loads(path.read_text())
+              elif path.suffix == ".toml":
+                  tomllib.loads(path.read_text())
+          print("Python syntax and JSON/TOML: PASS")
+          PY
+
+      - name: Build sdist and wheel from sdist
+        run: |
+          # Without format flags, build creates the wheel from the generated sdist.
+          python -m build --no-isolation --outdir "$RUNNER_TEMP/poc-dist" poc_work_assignment
+
+      - name: Check packaged Frappe resources
+        run: |
+          python - <<'PY'
+          import os
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          dist = Path(os.environ["RUNNER_TEMP"]) / "poc-dist"
+          sdist, = dist.glob("*.tar.gz")
+          wheel, = dist.glob("*.whl")
+          package = Path("poc_work_assignment/poc_work_assignment")
+          # Every source/resource file must survive both packaging stages unchanged.
+          resources = {
+              path.relative_to(package.parent).as_posix(): path.read_bytes()
+              for path in package.rglob("*")
+              if path.is_file() and path.suffix in {".py", ".json", ".txt"}
+          }
+          with tarfile.open(sdist) as archive:
+              prefix = sdist.name.removesuffix(".tar.gz") + "/"
+              for name, expected in resources.items():
+                  assert archive.extractfile(prefix + name).read() == expected, name
+              for name in ("pyproject.toml", "README.md", "license.txt"):
+                  expected = (package.parent / name).read_bytes()
+                  assert archive.extractfile(prefix + name).read() == expected, name
+          with zipfile.ZipFile(wheel) as archive:
+              for name, expected in resources.items():
+                  assert archive.read(name) == expected, name
+              licenses = [name for name in archive.namelist() if name.endswith("/license.txt")]
+              assert licenses, "Wheel license missing"
+              expected = (package.parent / "license.txt").read_bytes()
+              assert any(archive.read(name) == expected for name in licenses)
+          print(f"sdist and wheel: {len(resources)} package files verified")
+          PY
+
+      - name: Test installed wheel outside the repository
+        run: |
+          unset PYTHONPATH
+          python -m venv "$RUNNER_TEMP/poc-wheel-env"
+          wheel_python="$RUNNER_TEMP/poc-wheel-env/bin/python"
+          "$wheel_python" -m pip install --no-index --no-deps "$RUNNER_TEMP"/poc-dist/*.whl
+          mkdir -p "$RUNNER_TEMP/poc-wheel-tests"
+          cp tests/test_*.py "$RUNNER_TEMP/poc-wheel-tests/"
+          cd "$RUNNER_TEMP/poc-wheel-tests"
+          "$wheel_python" - <<'PY'
+          import sys
+          import unittest
+          from pathlib import Path
+
+          import poc_work_assignment
+          from poc_work_assignment import hooks, validation
+
+          installed = Path(poc_work_assignment.__file__).resolve()
+          assert installed.is_relative_to(Path(sys.prefix).resolve()), installed
+          assert hooks.app_name == "poc_work_assignment"
+          validation.validate_assignment("SYNTH-CI", "2026-10-21", "Office")
+          suite = unittest.defaultTestLoader.discover(".")
+          assert suite.countTestCases() == 3, "Expected three unit tests"
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() and not result.skipped else 1)
+          PY
+
+      - name: Ruff (informational)
+        continue-on-error: true
+        run: python -m ruff check --select E4,E7,E9,F,I,SIM poc_work_assignment tests
+
+  poc-frappe-integration:
+    name: poc-frappe-integration
+    needs: poc-fast
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI_SITE: ci-poc.local
+      FRAPPE_SHA: f20f92d29706510551b4438cc196b0323a7f1a92 # v16.50.0
+      # Disposable service credentials, never used outside this job.
+      CI_DB_ROOT_PASSWORD: ci-root-only
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    services:
+      mariadb:
+        image: mariadb:11.8.5@sha256:345fa26d595e8c7fe298e0c4098ed400356f502458769c8902229b3437d6da2b
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root-only
+          MARIADB_ROOT_HOST: "%"
+        ports:
+          - 13306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+      redis:
+        image: redis:7.4.2@sha256:fbdbaea47b9ae4ecc2082ecdb4e1cea81e32176ffb1dcf643d422ad07427e5d9
+        ports:
+          - 16379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - name: Prepare temporary paths
+        run: |
+          echo "CI_BENCH=$RUNNER_TEMP/poc-bench" >> "$GITHUB_ENV"
+          echo "CI_LOGS=$RUNNER_TEMP/poc-diagnostics" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/poc-diagnostics"
+
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14.8"
+
+      - name: Set up Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24.11.1"
+          package-manager-cache: false
+
+      - name: Install bench prerequisites
+        run: |
+          mkdir -p "$CI_LOGS"
+          exec > >(tee "$CI_LOGS/prerequisites.log") 2>&1
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config mariadb-client libmariadb-dev libmariadb-dev-compat \
+            libldap2-dev libsasl2-dev libssl-dev libcups2-dev libffi-dev \
+            libpango-1.0-0 libpangoft2-1.0-0
+          python -m pip install frappe-bench==5.31.1 uv==0.13.5
+          npm install --global yarn@1.22.22 --force
+          python --version
+          node --version
+          yarn --version
+
+      - name: Create disposable bench
+        run: |
+          exec > >(tee "$CI_LOGS/bench-init.log") 2>&1
+          git clone --depth 1 --branch v16.50.0 https://github.com/frappe/frappe.git "$RUNNER_TEMP/frappe-src"
+          test "$(git -C "$RUNNER_TEMP/frappe-src" rev-parse HEAD)" = "$FRAPPE_SHA"
+          bench init "$CI_BENCH" --frappe-path "$RUNNER_TEMP/frappe-src" \
+            --frappe-branch v16.50.0 --python "$(command -v python)" \
+            --skip-assets --skip-redis-config-generation --no-procfile --no-backups < /dev/null
+          cd "$CI_BENCH"
+          test "$(git -C apps/frappe rev-parse HEAD)" = "$FRAPPE_SHA"
+          bench setup requirements --dev
+          # Match Frappe's JUnit dependency and fail rather than silently omit XML.
+          uv pip install --python env/bin/python unittest-xml-reporting==3.2.0
+          cp -a "$GITHUB_WORKSPACE/poc_work_assignment" apps/poc_work_assignment
+          uv pip install --python env/bin/python --no-deps -e apps/poc_work_assignment
+          printf '%s\n' poc_work_assignment >> sites/apps.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("sites/common_site_config.json")
+          config = json.loads(path.read_text())
+          config.update(
+              redis_cache="redis://127.0.0.1:16379/0",
+              redis_queue="redis://127.0.0.1:16379/1",
+              redis_socketio="redis://127.0.0.1:16379/1",
+          )
+          path.write_text(json.dumps(config))
+          PY
+
+      - name: Install POC on a new site and migrate
+        run: |
+          exec > >(tee "$CI_LOGS/site-install-migrate.log") 2>&1
+          cd "$CI_BENCH"
+          bench new-site "$CI_SITE" --db-type mariadb --db-host 127.0.0.1 --db-port 13306 \
+            --db-root-username root --db-root-password "$CI_DB_ROOT_PASSWORD" \
+            --mariadb-user-host-login-scope '%' --admin-password ci-admin-only
+          bench --site "$CI_SITE" set-config allow_tests True --parse
+          bench --site "$CI_SITE" install-app poc_work_assignment
+          bench --site "$CI_SITE" migrate
+          bench --site "$CI_SITE" list-apps
+
+      - name: Run Frappe integration tests
+        id: integration-tests
+        run: |
+          cd "$CI_BENCH"
+          bench --site "$CI_SITE" run-tests --app poc_work_assignment --test-category integration \
+            --junit-xml-output "$CI_LOGS/integration.xml" 2>&1 | tee "$CI_LOGS/integration.log"
+
+      - name: Require all ten integration tests to pass
+        if: ${{ !cancelled() && steps.integration-tests.outcome != 'skipped' }}
+        run: |
+          python - <<'PY'
+          import ast
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          module = "poc_work_assignment.poc_work_assignment.doctype.poc_work_assignment.test_poc_work_assignment"
+          source = Path("poc_work_assignment") / (module.replace(".", "/") + ".py")
+          tree = ast.parse(source.read_text())
+          case = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "TestPOCWorkAssignment")
+          expected = {node.name for node in case.body if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")}
+          if len(expected) != 10:
+              raise SystemExit(f"Expected 10 source tests, found {len(expected)}")
+          report = Path(os.environ["CI_LOGS"]) / "integration.xml"
+          if not report.is_file() or not report.stat().st_size:
+              raise SystemExit("Missing or empty JUnit report: no executed tests confirmed")
+          root = ET.parse(report).getroot()
+          cases = root.findall(".//testcase")
+          names = {case.get("name") for case in cases}
+          if len(cases) != 10 or names != expected:
+              raise SystemExit(f"Expected the 10 POC tests; received {len(cases)}: {sorted(names)}")
+          if any(case.get("classname") != module + ".TestPOCWorkAssignment" for case in cases):
+              raise SystemExit("JUnit contains tests outside the expected POC class")
+          for tag in ("failure", "error", "skipped"):
+              if root.findall(f".//{tag}"):
+                  raise SystemExit(f"JUnit contains {tag} results")
+          print("Frappe integration: 10/10 PASS, no skipped tests")
+          PY
+
+      - name: Collect diagnostic logs
+        if: always()
+        env:
+          MARIADB_CONTAINER: ${{ job.services.mariadb.id }}
+          REDIS_CONTAINER: ${{ job.services.redis.id }}
+        run: |
+          mkdir -p "$CI_LOGS"
+          docker logs "$MARIADB_CONTAINER" > "$CI_LOGS/mariadb.log" 2>&1 || true
+          docker logs "$REDIS_CONTAINER" > "$CI_LOGS/redis.log" 2>&1 || true
+          if [ -x "$CI_BENCH/env/bin/python" ]; then
+            uv pip freeze --python "$CI_BENCH/env/bin/python" > "$CI_LOGS/python-packages.txt" 2>&1 || true
+          fi
+          # Copy logs only, never site configs, databases or private files.
+          for log_dir in "$CI_BENCH/logs" "$CI_BENCH/sites/$CI_SITE/logs"; do
+            if [ -d "$log_dir" ]; then
+              cp -a "$log_dir" "$CI_LOGS/$(basename "$(dirname "$log_dir")")-logs"
+            fi
+          done
+
+      - name: Upload integration diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: poc-frappe-integration-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/poc-diagnostics/
+          retention-days: 7
+          if-no-files-found: warn
