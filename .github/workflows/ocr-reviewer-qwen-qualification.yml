@@ -1,0 +1,96 @@
+name: OCR Reviewer Qwen comparison (manual, bounded)
+
+# One-off qualification of Qwen on the *same exact* synthetic PR used by DeepSeek.
+# Does not change the main independent-review/decision workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ocr-reviewer-qwen-17
+  cancel-in-progress: false
+
+jobs:
+  qwen-comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Assert fixed PR head and authorized test scope
+        id: target
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            if (context.repo.owner !== 'TsinjoOps' || context.repo.repo !== 'openhands-sandbox') {
+              throw new Error('Unexpected repository');
+            }
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: 17,
+            });
+            const expected = '7e8c1c2ebf0ba4f7d015eb2cd0885e7e2edb27c9';
+            if (pr.state !== 'open' || !pr.draft ||
+                pr.head.sha !== expected ||
+                pr.head.repo?.full_name !== context.repo.owner + '/' + context.repo.repo ||
+                pr.head.ref !== 'poc/ocr-reviewer-comparison-fixture-20261025') {
+              throw new Error('BLOCKED: comparison PR #17 identity or SHA changed');
+            }
+            core.setOutput('head_sha', expected);
+            core.setOutput('base_ref', pr.base.ref);
+
+      - name: Confirm dedicated reviewer inference key exists
+        env:
+          REVIEW_KEY_PRESENT: ${{ secrets.OPENROUTER_OCR_API_KEY != '' }}
+        run: |
+          if [ "$REVIEW_KEY_PRESENT" != 'true' ]; then
+            echo '::error::BLOCKED: dedicated reviewer key unavailable'
+            exit 1
+          fi
+
+      - name: Run Qwen reviewer once without writing an OCR decision
+        id: ocr
+        uses: alibaba/open-code-review@182898cf522da3d04157b422752d028417974e19
+        env:
+          OCR_NO_UPDATE: '1'
+        with:
+          llm_url: https://openrouter.ai/api/v1
+          llm_auth_token: ${{ secrets.OPENROUTER_OCR_API_KEY }}
+          llm_model: qwen/qwen3.8-max-0902
+          llm_use_anthropic: 'false'
+          ocr_version: '1.13.0'
+          pr_number: '17'
+          base_ref: ${{ steps.target.outputs.base_ref }}
+          head_sha: ${{ steps.target.outputs.head_sha }}
+          effort: medium
+          llm_timeout: '600'
+          review_task_timeout: '30'
+          max_tokens_budget: '50000'
+          full_review: 'true'
+          checkpoint_range: 'false'
+          sticky_summary: 'false'
+          incremental: 'false'
+          resolve_outdated: 'false'
+          upload_artifacts: 'true'
+          stream_progress: 'true'
+          # Identical review background to the already-qualified DeepSeek test.
+          background: >-
+            Review this isolated Frappe v16.50 proof-of-concept pull-request diff independently. Prioritize correctness,
+            security, secret handling, least privilege, authority boundaries, data
+            integrity, maintainability, observability, recovery behavior, and evidence
+            integrity. Honor path-specific project review rules when present. Flag
+            unjustified authority expansion, credential persistence, unsupported PASS
+            claims, and operational risks. Do not assume merge or deploy authority exists.
+
+      - name: Record Qwen comparison evidence location, not an OCR PASS
+        if: always()
+        env:
+          EXPECTED_SHA: ${{ steps.target.outputs.head_sha }}
+        run: |
+          echo '## Qwen reviewer comparison — informational only' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Model: qwen/qwen3.8-max-0902; OCR: 1.13.0; effort: medium; token budget: 50000.' >> "$GITHUB_STEP_SUMMARY"
+          echo "Expected PR #17 SHA: $EXPECTED_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo 'No independent-review PASS/FAIL/BLOCKED marker is issued by this workflow.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Inspect OCR artifact, published findings, completeness, and provider billing manually.' >> "$GITHUB_STEP_SUMMARY"
