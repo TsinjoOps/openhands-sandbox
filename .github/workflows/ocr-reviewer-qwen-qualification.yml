@@ -75,12 +75,14 @@ jobs:
           resolve_outdated: 'false'
           upload_artifacts: 'true'
           stream_progress: 'true'
+          # Identical review background to the already-qualified DeepSeek test.
           background: >-
-            Review the Python diff independently. Prioritize correctness, type
-            handling, data integrity, and validation of the claimed public API
-            behavior. Do not assume the code is correct; cite specific issues
-            backed by the diff. This review is informational and has no merge
-            or deployment authority.
+            Review this isolated Frappe v16.50 proof-of-concept pull-request diff independently. Prioritize correctness,
+            security, secret handling, least privilege, authority boundaries, data
+            integrity, maintainability, observability, recovery behavior, and evidence
+            integrity. Honor path-specific project review rules when present. Flag
+            unjustified authority expansion, credential persistence, unsupported PASS
+            claims, and operational risks. Do not assume merge or deploy authority exists.
 
       - name: Record Qwen comparison evidence location, not an OCR PASS
         if: always()
