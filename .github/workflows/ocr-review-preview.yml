@@ -1,0 +1,99 @@
+name: OCR review manifest preview (no LLM)
+
+# Manual, read-only diagnostic. It cannot claim an OCR PASS.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Same-repository PR number (default 7)"
+        required: true
+        default: '7'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Resolve and validate review target
+        id: target
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          PR_NUMBER_INPUT: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const number = Number(process.env.PR_NUMBER_INPUT);
+            if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Invalid PR number');
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: number,
+            });
+            if (pr.state !== 'open' || pr.head.repo?.full_name !== context.repo.owner + '/' + context.repo.repo) {
+              throw new Error('BLOCKED: target must be an open same-repository PR');
+            }
+            if (!/^[0-9a-f]{40}$/.test(pr.head.sha) || !/^[0-9a-f]{40}$/.test(pr.base.sha)) {
+              throw new Error('Invalid Git SHA');
+            }
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('base_sha', pr.base.sha);
+            core.setOutput('pr_number', String(number));
+
+      - name: Checkout trusted default branch without credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned OCR CLI (no provider configuration)
+        env:
+          OCR_NO_UPDATE: '1'
+        run: |
+          set -euo pipefail
+          npm install -g '@alibaba-group/open-code-review@1.13.0'
+          ocr version
+
+      - name: Produce selection manifest without LLM
+        env:
+          OCR_NO_UPDATE: '1'
+          BASE_SHA: ${{ steps.target.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.target.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.target.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p /tmp/ocr-preview
+          git cat-file -e "${BASE_SHA}^{commit}"
+          git cat-file -e "${HEAD_SHA}^{commit}"
+          MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          test -n "$MERGE_BASE"
+          printf 'PR=%s\nHEAD=%s\nBASE=%s\nMERGE_BASE=%s\n' "$PR_NUMBER" "$HEAD_SHA" "$BASE_SHA" "$MERGE_BASE" > /tmp/ocr-preview/target.txt
+
+          # --preview skips inference; only the file filter/selection pipeline runs.
+          # No OpenRouter secrets, provider URL, or posting token is supplied.
+          ocr review --from "$MERGE_BASE" --to "$HEAD_SHA" --preview --format json \
+            > /tmp/ocr-preview/preview.json \
+            2> /tmp/ocr-preview/stderr.log
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/ocr-preview/preview.json')
+          obj = json.loads(p.read_text(encoding='utf-8'))
+          if not isinstance(obj, (dict, list)):
+              raise SystemExit('BLOCKED: unexpected JSON preview type')
+          print('PREVIEW_ONLY: JSON parsed. No OCR PASS / coverage qualification asserted.')
+          PY
+
+      - name: Upload preview evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ocr-no-llm-preview-${{ github.run_id }}
+          path: /tmp/ocr-preview/
+          if-no-files-found: warn
+          retention-days: 7
