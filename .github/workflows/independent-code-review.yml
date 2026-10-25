@@ -155,11 +155,11 @@ jobs:
 
       - name: Check OpenRouter secret is configured (no value disclosure)
         env:
-          OPENROUTER_SECRET_PRESENT: ${{ secrets.OPENROUTER_API_KEY != '' }}
+          OPENROUTER_SECRET_PRESENT: ${{ secrets.OPENROUTER_OCR_API_KEY != '' }}
         run: |
           set -euo pipefail
           if [ "${OPENROUTER_SECRET_PRESENT}" != "true" ]; then
-            echo "::error::BLOCKED: OPENROUTER_API_KEY is not configured for this repository or workflow."
+            echo "::error::BLOCKED: OPENROUTER_OCR_API_KEY is not configured for this repository or workflow."
             exit 1
           fi
 
@@ -319,8 +319,8 @@ jobs:
           OCR_NO_UPDATE: '1'
         with:
           llm_url: https://openrouter.ai/api/v1
-          llm_auth_token: ${{ secrets.OPENROUTER_API_KEY }}
-          llm_model: qwen/qwen3.8-27b
+          llm_auth_token: ${{ secrets.OPENROUTER_OCR_API_KEY }}
+          llm_model: deepseek/deepseek-v4.1-flash-1017
           llm_use_anthropic: 'false'
           # Pin the CLI version independently from the composite-action SHA so
           # model cost/coverage behavior cannot drift silently between reviews.
@@ -333,9 +333,9 @@ jobs:
           # Per selected-file review task timeout, in minutes.
           # Keep the hierarchy: 10m LLM request < 30m review task < 60m job.
           review_task_timeout: '30'
-          # Sandbox cost brake: lower than the lab's qualified 800k ceiling.
+          # First DeepSeek qualification only: deliberately restrictive sandbox ceiling.
           # Incomplete reviews MUST be BLOCKED, never PASS; adjust only with evidence.
-          max_tokens_budget: '200000'
+          max_tokens_budget: '50000'
           stream_progress: 'true'
           upload_artifacts: 'true'
           sticky_summary: 'true'
