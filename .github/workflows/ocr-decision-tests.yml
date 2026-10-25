@@ -8,6 +8,9 @@ on:
       - tests/test_review_decision_smoke.py
       - .github/workflows/ocr-decision-tests.yml
       - .github/workflows/independent-code-review.yml
+      - .github/workflows/ocr-review-preview.yml
+      - scripts/ocr_heuristic_floor.py
+      - tests/test_ocr_heuristic_floor.py
 
 permissions:
   contents: read
@@ -25,6 +28,8 @@ jobs:
           python-version: '3.14'
       - name: Run evaluator smoke tests (offline)
         run: python -m unittest discover -s tests -p 'test_review_decision_smoke.py' -v
+      - name: Verify OCR 1.13 heuristic estimate tests (offline)
+        run: python -m unittest discover -s tests -p 'test_ocr_heuristic_floor.py' -v
       - name: Verify OCR workflow safety guards (offline)
         run: |
           python - <<'PY'
