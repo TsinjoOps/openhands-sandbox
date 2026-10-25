@@ -35,7 +35,7 @@ jobs:
               "github.event.comment.user.type != 'Bot'",
               "Enforce same-repository review target",
               "OPENROUTER_SECRET_PRESENT",
-              "secrets.OPENROUTER_API_KEY != ''",
+              "secrets.OPENROUTER_OCR_API_KEY != ''",
               "ref: " + chr(36) + "{{ github.sha }}",
               "persist-credentials: false",
               "Last-moment latest-SHA guard",
