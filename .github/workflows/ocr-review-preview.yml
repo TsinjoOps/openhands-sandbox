@@ -89,6 +89,21 @@ jobs:
           print('PREVIEW_ONLY: JSON parsed. No OCR PASS / coverage qualification asserted.')
           PY
 
+      - name: Validate offline budget heuristic (no LLM)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_ocr_heuristic_floor.py' -v
+          python scripts/ocr_heuristic_floor.py /tmp/ocr-preview/preview.json \
+            --budget 50000 --output /tmp/ocr-preview/heuristic-budget.json
+          # Informational only: preview success is never an OCR PASS.
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          j = json.loads(Path('/tmp/ocr-preview/heuristic-budget.json').read_text())
+          if j['budget_below_fixed_heuristic_floor']:
+              print('PREVIEW_ONLY: 50k is below the fixed terms of the OCR 1.13.0 cost heuristic.')
+          PY
+
       - name: Upload preview evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
