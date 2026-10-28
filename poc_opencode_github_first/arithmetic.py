@@ -2,5 +2,4 @@
 
 
 def add(a, b):
-    # Intentional Phase A defect: preserve for the Producer → Debugger handoff.
-    return a - b
+    return a + b
