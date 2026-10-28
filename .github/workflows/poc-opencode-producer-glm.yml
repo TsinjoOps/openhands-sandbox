@@ -1,0 +1,26 @@
+name: POC OpenCode Producer GLM
+
+# Issue #22 fixture: dedicated CI for the bounded Producer-Glm POC module only.
+on:
+  pull_request:
+    paths:
+      - "poc_opencode_producer_glm/**"
+      - ".github/workflows/poc-opencode-producer-glm.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Run dedicated unit tests
+        run: python3 -B -m unittest poc_opencode_producer_glm.test_slug -v
