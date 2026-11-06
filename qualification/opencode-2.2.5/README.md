@@ -26,6 +26,12 @@ Expected verification:
 
 **Potential failure boundary:** candidate has not been typechecked or run against actual upstream source at the commit. Real service dependency graph, counter semantics and Code Mode exposure may need adjustment. All expected behaviors remain **NV** until independently executed.
 
+## Staged manual-only CI definition
+
+A dormant workflow has been added **on the qualification branch only** at `.github/workflows/poc-opencode-mcp-permission-225.yml`, commit `c5ef88dd046b6b79ca045a5f12a2dee4eac622a1`. It uses `workflow_dispatch` exclusively (no `push`, `pull_request`, `schedule`, or `workflow_call`), `contents: read`, no explicit secrets, a 15-minute GitHub-hosted Ubuntu 24.04 job limit, SHA-pinned checkout and Bun setup actions, exact OpenCode SHA verification, Bun 1.4.4, and `bun install --frozen-lockfile --ignore-scripts`, then only the focused test. The dependency install still uses outbound network and runs on a third-party-hosted runner; it remains subject to provenance review and explicitly authorized CI resource use. The fixture is not sandboxed against arbitrary network calls, so it must be reviewed before enabling.
+
+**Important operational limitation:** GitHub does not offer `workflow_dispatch` for a workflow existing only on a feature branch unless a version exists on the default branch. No default-branch change or dispatch has been made, no run occurred, and no Draft PR has been opened. Before activation: independently review the exact workflow diff, the existing workflow triggers and repository/org Actions policies, confirm billing/runner quota and branch protections, then request a discrete GO. Do not merge a dormant workflow into `main` simply to make it triggerable without that decision.
+
 ## Controlled execution proposal (not authorized or scheduled)
 
 Use a separate disposable GitHub Actions runner / isolated test environment only after the operational owner authorizes any CI resource consumption:
