@@ -1,0 +1,76 @@
+# Dormant on this qualification branch. GitHub workflow_dispatch requires
+# the workflow on the default branch before it can be triggered manually.
+name: POC OpenCode 2.2.5 MCP permission gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opencode-225-mcp-permission-gate
+  cancel-in-progress: false
+
+jobs:
+  deny-allow:
+    if: github.repository == 'TsinjoOps/openhands-sandbox'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: "true"
+      OPENCODE_DISABLE_AUTOUPDATE: "1"
+      OPENCODE_DISABLE_MODELS_FETCH: "1"
+      OPENCODE_DISABLE_PROJECT_CONFIG: "1"
+      DO_NOT_TRACK: "1"
+
+    steps:
+      - name: Checkout synthetic sandbox fixture (read-only)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: sandbox
+          persist-credentials: false
+
+      - name: Checkout exact upstream OpenCode 2.2.5 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: anomalyco/opencode
+          ref: 9bbb8ce18c80f099e0e448775f59d965ead40a21
+          path: upstream
+          persist-credentials: false
+
+      - name: Verify fixed source and synthetic fixture
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream rev-parse HEAD)" = "9bbb8ce18c80f099e0e448775f59d965ead40a21"
+          test "$(python3 -c 'import json; print(json.load(open("upstream/package.json"))["packageManager"])')" = "bun@1.4.4"
+          test -f sandbox/qualification/opencode-2.2.5/mcp-permission-gate.test.ts
+          test -f upstream/bun.lock
+          cp sandbox/qualification/opencode-2.2.5/mcp-permission-gate.test.ts \
+            upstream/packages/core/test/mcp-permission-gate.test.ts
+          echo "PINNED_UPSTREAM=PASS"
+          echo "FIXTURE_PRESENT=PASS"
+
+      - name: Install Bun 1.4.4
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+          no-cache: true
+
+      - name: Verify Bun version
+        run: |
+          test "$(bun --version)" = "1.4.4"
+          echo "BUN_VERSION=PASS"
+
+      - name: Install pinned upstream dependencies without lifecycle scripts
+        working-directory: upstream
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+
+      - name: Execute only native MCP permission fixture
+        working-directory: upstream
+        run: |
+          bun run --cwd packages/core script/test.ts mcp-permission-gate.test.ts
