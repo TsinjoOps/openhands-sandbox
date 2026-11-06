@@ -138,13 +138,18 @@ it.live("real permission deny blocks MCP before the remote tool is called; allow
       { action: "*", resource: "*", effect: "allow" },
       { action: "probe_ping", resource: "*", effect: "deny" },
     ])
+    // executeTool() requests an unfiltered Tool.snapshot() through the real
+    // OpenCode registry. This intentionally keeps probe_ping visible, so
+    // the denial must occur inside Permission.assert(), not catalog filtering.
     const denied = yield* invoke()
     expect(denied.status).toBe("error")
+    expect(denied.error).toBeDefined()
     expect(calls).toBe(0)
 
     yield* setPermissions([{ action: "*", resource: "*", effect: "allow" }])
     const allowed = yield* invoke()
     expect(allowed.status).toBe("completed")
+    expect(allowed.output?.output).toBe("pong")
     expect(calls).toBe(1)
   }),
 )
