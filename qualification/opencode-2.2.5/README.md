@@ -22,6 +22,8 @@ Expected verification:
 3. Change permission to allow: `execute` returns success and the MCP callback count becomes **1**.
 4. The test does not use `OPENCODE_SIMULATE`, `OPENCODE_DRIVE`, LLM, GitHub token, or external Github MCP.
 
+**Path qualification:** the fixture uses the upstream `executeTool` helper, which creates an unfiltered `Tool.snapshot()`; the MCP tool is therefore still presented to Code Mode. The explicit `probe_ping` denial must be checked by the **real** `Permission.assert()` in the MCP tool executor, rather than by a filtered catalog alone. The positive control also asserts the server's actual `pong` response, not just a completed status. A separate filtered-catalog test remains optional and must not be confused with effective runtime refusal.
+
 **Potential failure boundary:** candidate has not been typechecked or run against actual upstream source at the commit. Real service dependency graph, counter semantics and Code Mode exposure may need adjustment. All expected behaviors remain **NV** until independently executed.
 
 ## Controlled execution proposal (not authorized or scheduled)
