@@ -53,3 +53,15 @@ If the bridge does not expose a verified per-request counter/receipt, the gate i
 - Existing sandbox PAT is documented as expiring **2026-11-13**; its current scope/validity, suitability and any change require inspection and GO.
 
 **Gate decision:** 10C.18 source/test-contract **PASS (documentary)**; actual model-origin MCP test **BLOCKED / NV**; OpenCode 2.2.5 production migration **NO-GO**.
+
+
+## Static preflight and permission fixtures (2026-11-07)
+
+- `preflight-gate-10c18-readonly.sh`, Git blob `4b130b404a22dfc4edff0585ca0424125584c112`, inspects **only** host command availability, exact candidate image ID, production container IDs/states, and public resource counters. No network, container creation, secrets, model invocation or production mutation. Local `bash -n` and static command inspection **PASS**; actual VPS run **NV**.
+- `config-gate10c18-positive.json`, blob `36f8f6ae099505765f859e8aabdb667bdaa51a2f`, defines a default-deny test agent with `execute` and one exact MCP read permission ALLOW.
+- `config-gate10c18-negative.json`, blob `161f61208f21c3d0537bfd1eed55c3f95f5d07ea`, retains Code Mode `execute` but explicitly DENIES the exact MCP read permission.
+- `test_gate10c18_config.py`, blob `91855cd5327ad263ccae450041aff91217a6b82f`: Python stdlib structural/order checks PASS locally (1 test with positive/negative and alternative-tool subcases). The Python evaluator deliberately checks only exact action names and `*`, not the full OpenCode wildcard implementation. **This is not native policy enforcement evidence.**
+
+All four files are uncredentialed and contain **no provider, MCP command, egress or deployment configuration**. The exact server/tool naming must be confirmed from the live MCP catalogue. OpenCode V2 source at `packages/core/src/permission.ts` (blob `f3cd4a65e058b99c1561b404da148305c41c5d5f`) uses **last matching rule wins**; the config agent loader at `packages/core/src/config/plugin/agent.ts` (blob `e78ad1243bac5a67d926c4fb23bbe73d6b57588b`) appends global and agent-specific ordered rules. Runtime inherited rules, session permissions, plugins and identity remain to be inspected; a static JSON assertion cannot establish the deployed effective policy.
+
+**Next required observation:** operator executes the pinned **read-only** VPS preflight; then qualify provider cost hard limit (2 USD maximum authorized for this trial), dedicated GitHub read-only scope, network egress boundary, bridge receipts and runtime configuration before any actual model call. No identity, cost or network trial has been activated by these repository edits. Positive/negative model trial still **NV**.
