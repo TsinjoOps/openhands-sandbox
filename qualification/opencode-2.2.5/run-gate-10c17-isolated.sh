@@ -8,8 +8,8 @@ umask 077
 COMPOSE_FILE="${1:?manifest path required}"
 VALIDATOR="${2:?validator path required}"
 EXPECTED_IMAGE="sha256:4accab77deb837737d073b6499147ff61ac6aae2161ebb3c1a0bc0a7b8e8c268"
-EXPECTED_MANIFEST_BLOB="0d9eade813734c4bbea8b0ec7bf93886c7c22813"
-EXPECTED_VALIDATOR_BLOB="75e9b3e99b928a0a04a0068d3c8db8e5dbe78222"
+EXPECTED_MANIFEST_BLOB="480ab20217d7283117cb010408c4556a082729a2"
+EXPECTED_VALIDATOR_BLOB="9e5f944fe223213e8a60edced912d1a1a8024685"
 PROJECT="tsinjoops-gate10c17-$$"
 CID=""
 STARTED=0
@@ -160,6 +160,7 @@ assert h.get("NanoCpus") == 1000000000, "cpu cap"
 tmp = h.get("Tmpfs") or {}
 expected = {
     "/tmp", "/workspace",
+    "/home/opencode/.cache/opencode",
     "/home/opencode/.local/share/opencode",
     "/home/opencode/.local/state/opencode",
     "/home/opencode/.config/opencode",
