@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   deny-allow:
-    if: github.repository == 'TsinjoOps/openhands-sandbox'
+    if: github.repository == 'TsinjoOps/openhands-sandbox' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -28,9 +28,11 @@ jobs:
       DO_NOT_TRACK: "1"
 
     steps:
-      - name: Checkout synthetic sandbox fixture (read-only)
+      - name: Checkout reviewed fixture commit (read-only)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          repository: TsinjoOps/openhands-sandbox
+          ref: dcc9f7c4235f015c1da4f78f2abd7994c14b3f4f
           path: sandbox
           persist-credentials: false
 
@@ -47,6 +49,7 @@ jobs:
           set -euo pipefail
           test "$(git -C upstream rev-parse HEAD)" = "9bbb8ce18c80f099e0e448775f59d965ead40a21"
           test "$(python3 -c 'import json; print(json.load(open("upstream/package.json"))["packageManager"])')" = "bun@1.4.4"
+          test "$(git -C sandbox rev-parse HEAD)" = "dcc9f7c4235f015c1da4f78f2abd7994c14b3f4f"
           test -f sandbox/qualification/opencode-2.2.5/mcp-permission-gate.test.ts
           test -f upstream/bun.lock
           cp sandbox/qualification/opencode-2.2.5/mcp-permission-gate.test.ts \
