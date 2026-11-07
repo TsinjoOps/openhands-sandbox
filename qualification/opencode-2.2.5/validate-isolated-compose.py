@@ -9,7 +9,7 @@ import sys
 
 EXPECTED_IMAGE = "local/tsinjoops-opencode:2.2.5-candidate"
 EXPECTED_TARGETS = {
-    "/tmp", "/workspace",
+    "/tmp", "/workspace", "/home/opencode/.cache/opencode",
     "/home/opencode/.local/share/opencode",
     "/home/opencode/.local/state/opencode",
     "/home/opencode/.config/opencode",
@@ -79,7 +79,7 @@ def main():
         targets.add(target)
     require(targets == EXPECTED_TARGETS, "tmpfs destinations mismatch")
     print("COMPOSE_STATIC_GATE=PASS")
-    print("SCOPE=one credential-free offline non-root disposable runtime")
+    print("SCOPE=one offline non-root disposable runtime with a public synthetic password")
     print("BIND_MOUNTS=0")
     print("PUBLISHED_PORTS=0")
     print("NETWORK=none")
