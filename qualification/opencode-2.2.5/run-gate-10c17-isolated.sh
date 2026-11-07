@@ -78,10 +78,33 @@ sudo -n docker compose --project-name "$PROJECT" \
   --profile manual-qualification-only -f "$COMPOSE_FILE" \
   up -d --no-deps --no-build --pull never opencode-review
 
-CID="$(sudo -n docker compose --project-name "$PROJECT" \
-  --profile manual-qualification-only -f "$COMPOSE_FILE" ps -q opencode-review)"
+CID="$(sudo -n docker ps -aq \
+  --filter "label=com.docker.compose.project=$PROJECT" \
+  --filter "label=com.docker.compose.service=opencode-review")"
 test -n "$CID"
 test "$(sudo -n docker inspect "$CID" --format '{{.Image}}')" = "$EXPECTED_IMAGE"
+
+# A stopped process is not an isolation bypass. Capture only bounded,
+# redacted diagnostics before cleanup. This candidate has no credentials
+# or production state and cannot access the network.
+if [[ "$(sudo -n docker inspect "$CID" --format '{{.State.Running}}')" != "true" ]]; then
+  echo "CANDIDATE_PROCESS=EXITED"
+  sudo -n docker inspect "$CID" --format 'EXIT_CODE={{.State.ExitCode}}
+OOM_KILLED={{.State.OOMKilled}}
+STATE_ERROR_PRESENT={{if .State.Error}}true{{else}}false{{end}}'
+  echo "===== REDACTED STARTUP ERRORS (MAX 20 LINES) ====="
+  sudo -n docker logs --tail 50 "$CID" 2>&1 | python3 -c '
+import re, sys
+rows = sys.stdin.read().splitlines()
+for line in rows[-20:]:
+    line = re.sub(r"(?i)(github_pat_|gh[pousr]_)[A-Za-z0-9_]+", "[REDACTED_TOKEN]", line)
+    line = re.sub(r"(?i)(bearer|authorization|token|api[_-]?key|password|secret)\\s*[:=]\\s*[^\\s,;]+", r"\\1=[REDACTED]", line)
+    line = re.sub(r"https?://[^\\s]+", "[URL_REDACTED]", line)
+    print(line[:240])
+'
+  echo "LOCAL_API_INFO=BLOCKED_PROCESS_EXITED"
+  exit 1
+fi
 
 sudo -n docker inspect "$CID" --format \
   'RUNNING={{.State.Running}}
