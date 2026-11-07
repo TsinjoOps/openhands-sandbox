@@ -1,0 +1,44 @@
+# Gate 10C.16 — REVIEW ONLY; never deploy in production.
+# A disposable, credential-free, network-disabled OpenCode 2.2.5 runtime.
+# No bind volumes, published ports, production state, inherited /workspace,
+# GitHub credentials or provider keys. Explicit service selection still
+# permits start despite the profile: do NOT run 'up' for this gate.
+services:
+  opencode-review:
+    image: local/tsinjoops-opencode:2.2.5-candidate
+    profiles:
+      - manual-qualification-only
+    command:
+      - serve
+      - --hostname
+      - 127.0.0.1
+      - --port
+      - "4096"
+    user: "10001:10001"
+    working_dir: /workspace
+    network_mode: none
+    read_only: true
+    privileged: false
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.0
+    restart: "no"
+    environment:
+      HOME: /home/opencode
+      XDG_CONFIG_HOME: /home/opencode/.config
+      OPENCODE_DISABLE_AUTOUPDATE: "1"
+      OPENCODE_DISABLE_MODELS_FETCH: "1"
+      OPENCODE_DISABLE_PROJECT_CONFIG: "1"
+      DO_NOT_TRACK: "1"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m,mode=1777
+      - /workspace:rw,nosuid,nodev,size=128m,mode=0700
+      - /home/opencode/.local/share/opencode:rw,nosuid,nodev,size=128m,mode=0700
+      - /home/opencode/.local/state/opencode:rw,nosuid,nodev,size=32m,mode=0700
+      - /home/opencode/.config/opencode:rw,nosuid,nodev,size=32m,mode=0700
+      - /home/opencode/.config/gh:rw,nosuid,nodev,size=8m,mode=0700
+      - /home/opencode/.config/git:rw,nosuid,nodev,size=8m,mode=0700
