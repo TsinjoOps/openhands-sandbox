@@ -25,6 +25,8 @@ def decide(msg, calls):
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
         return "BLOCK_PROTOCOL"
     method = msg.get("method")
+    if not isinstance(method, str):
+        return "BLOCK_METHOD"
     if method in CONTROL:
         return "ALLOW_CONTROL"
     if method != "tools/call":
@@ -142,7 +144,7 @@ def run(binary, token_file):
                 if isinstance(data, dict):
                     with lock:
                         mid = data.get("id")
-                        if mid in ids:
+                        if type(mid) in (str, int) and mid in ids:
                             ids.discard(mid)
                             result = data.get("result")
                             if isinstance(result, dict) and result.get("isError") is False and result.get("content"):
@@ -196,6 +198,8 @@ def run(binary, token_file):
         print("MCP_FINAL_FORWARDED=" + str(state["forwarded"]), file=sys.stderr, flush=True)
         print("MCP_FINAL_DENIED=" + str(state["denied"]), file=sys.stderr, flush=True)
         print("MCP_FINAL_SUCCESS=" + str(state["success"]), file=sys.stderr, flush=True)
+    if child.returncode != 0 or (state["forwarded"] and state["success"] != state["forwarded"]):
+        return 2
     return 0
 
 
