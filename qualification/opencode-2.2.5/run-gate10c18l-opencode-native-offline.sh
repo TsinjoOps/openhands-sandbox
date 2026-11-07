@@ -5,7 +5,7 @@ set -euo pipefail
 umask 077
 test "$#" -eq 1 || { echo "USAGE: bash runner exact-test.py"; exit 2; }
 TEST="$1"
-TEST_BLOB="6ce617d891c0999c9916dddc42f5123e2f5e80b0"
+TEST_BLOB="e5e614438738dd9e03ac133284575b41a676c3e9"
 IMAGE="local/tsinjoops-opencode:2.2.5-10c18-python-20261107"
 IMAGE_ID="sha256:1285aa62ba2108f922682fbe66f4d99428583beb087dccff61be13afe15ae36b"
 MCP_SHA="cdd2dfbf269ca249f7e31148e20d072a22e224dd7cab0d5a176d146900b85324"
