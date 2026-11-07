@@ -58,8 +58,10 @@ def main():
     require(set(env) == {
         "HOME", "XDG_CONFIG_HOME", "OPENCODE_DISABLE_AUTOUPDATE",
         "OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_DISABLE_PROJECT_CONFIG", "DO_NOT_TRACK",
+        "OPENCODE_PASSWORD",
     }, "environment variable names unexpected")
     require(env["HOME"] == "/home/opencode", "home changed")
+    require(env["OPENCODE_PASSWORD"] == "synthetic-offline-gate-10c17-only", "test-only password changed")
     mounts = s.get("tmpfs") or []
     require(isinstance(mounts, list), "tmpfs shape")
     targets = set()
