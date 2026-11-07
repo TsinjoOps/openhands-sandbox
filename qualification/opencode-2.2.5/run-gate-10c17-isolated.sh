@@ -8,8 +8,8 @@ umask 077
 COMPOSE_FILE="${1:?manifest path required}"
 VALIDATOR="${2:?validator path required}"
 EXPECTED_IMAGE="sha256:4accab77deb837737d073b6499147ff61ac6aae2161ebb3c1a0bc0a7b8e8c268"
-EXPECTED_MANIFEST_BLOB="049e6ddff130d61fa7ec73c888e381dcac56e9bf"
-EXPECTED_VALIDATOR_BLOB="a82db1d67fff7ecf3c5b342a46fffc83b859e1bb"
+EXPECTED_MANIFEST_BLOB="0d9eade813734c4bbea8b0ec7bf93886c7c22813"
+EXPECTED_VALIDATOR_BLOB="75e9b3e99b928a0a04a0068d3c8db8e5dbe78222"
 PROJECT="tsinjoops-gate10c17-$$"
 CID=""
 STARTED=0
@@ -24,44 +24,53 @@ stop() {
       if [[ -z "$CID" ]]; then
         CID="$(sudo -n docker ps -aq --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=opencode-review" 2>/dev/null || true)"
       fi
-      if [[ -n "$CID" ]] && [[ "$CID" != *' '* ]] && test "$(sudo -n docker inspect "$CID" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || true)" = "$PROJECT"; then
-        echo '===== FAILURE STATE BEFORE CLEANUP ====='
+      if [[ -n "$CID" && "$CID" =~ ^[a-f0-9]{64}$ ]] && [[ "$(sudo -n docker inspect "$CID" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || true)" == "$PROJECT" ]]; then
+        echo "===== DIAGNOSTIC BEFORE CLEANUP ====="
         sudo -n docker inspect "$CID" --format 'DIAG_RUNNING={{.State.Running}}
 DIAG_EXIT_CODE={{.State.ExitCode}}
-DIAG_OOM_KILLED={{.State.OOMKilled}}
-DIAG_ERROR_PRESENT={{if .State.Error}}true{{else}}false{{end}}' || true
-        echo '===== BOUNDED ERROR SIGNATURES ====='
-        sudo -n docker logs --tail 60 "$CID" 2>/dev/null | python3 -c '
-import re, sys
-lines = sys.stdin.read(16000).splitlines()
-p = r"(error|failed|fatal|panic|exception|denied|readonly|read-only|not found|ENOENT|EACCES|EPERM|EROFS|ENOSPC|cannot|unable|missing)"
-for line in [x for x in lines if re.search(p, x, re.I)][-12:]:
-    line = re.sub(r"(?i)(github_pat_|gh[pousr]_)[A-Za-z0-9_]+", "[TOKEN]", line)
-    line = re.sub(r"(?i)(bearer|authorization|token|api[_-]?key|password|secret)\s*[:=]\s*[^\s,;]+", r"\1=[REDACTED]", line)
-    line = re.sub(r"https?://[^\s]+", "[URL]", line)
-    print(line[:220])
-' || echo 'DIAG_LOG_EXTRACTION=BLOCKED'
+DIAG_OOM_KILLED={{.State.OOMKilled}}' || true
+        # Never print raw log lines. Only fixed, allowlisted categories are emitted.
+        sudo -n docker logs --tail 100 "$CID" 2>/dev/null | python3 -c '
+import sys
+log = sys.stdin.read(32768).lower()
+classes = {
+    "EROFS": ("erofs", "read-only file system"),
+    "EACCES": ("eacces", "permission denied"),
+    "EPERM": ("eperm", "operation not permitted"),
+    "ENOENT": ("enoent", "no such file or directory"),
+    "ENOSPC": ("enospc", "no space left on device"),
+    "OOM": ("out of memory", "oomkilled"),
+    "ADDRESS_IN_USE": ("eaddrinuse", "address already in use"),
+    "MISSING_CONFIG": ("missing server password", "invalid configuration"),
+}
+for name, patterns in classes.items():
+    if any(p in log for p in patterns):
+        print("DIAG_CLASS=" + name)
+if not any(any(p in log for p in patterns) for patterns in classes.values()):
+    print("DIAG_CLASS=UNCLASSIFIED")
+print("RAW_LOGS_EMITTED=NO")
+' || echo "DIAGNOSTIC_CLASSIFIER=BLOCKED"
       else
-        echo 'FAILURE_DIAGNOSTICS=BLOCKED_NO_OWNED_CONTAINER'
+        echo "FAILURE_DIAGNOSTICS=BLOCKED_NO_OWNED_CONTAINER"
       fi
     fi
-    echo '===== OWNED CANDIDATE CLEANUP ====='
-    sudo -n docker compose --project-name "$PROJECT" --profile manual-qualification-only -f "$COMPOSE_FILE" down --remove-orphans --timeout 5 || { echo 'CANDIDATE_CLEANUP=FAIL'; rc=1; }
+    echo "===== OWNED CANDIDATE CLEANUP ====="
+    sudo -n docker compose --project-name "$PROJECT" --profile manual-qualification-only -f "$COMPOSE_FILE" down --remove-orphans --timeout 5 || { echo "CANDIDATE_CLEANUP=FAIL"; rc=1; }
     if sudo -n docker ps -aq --filter "label=com.docker.compose.project=$PROJECT" | grep -q .; then
-      echo 'CANDIDATE_RESIDUE=FAIL'
+      echo "CANDIDATE_RESIDUE=FAIL"
       rc=1
     else
-      echo 'CANDIDATE_RESIDUE=PASS'
+      echo "CANDIDATE_RESIDUE=PASS"
     fi
   else
-    echo 'CANDIDATE_START=NOT_ATTEMPTED_OR_FAILED'
+    echo "CANDIDATE_START=NOT_ATTEMPTED_OR_FAILED"
   fi
   now_prod="$(sudo -n docker inspect opencode-lab --format '{{.Id}}' 2>/dev/null || true)"
   now_overlay="$(sudo -n docker inspect opencode-sw-overlay --format '{{.Id}}' 2>/dev/null || true)"
   if [[ -n "$PRE_PROD" && "$PRE_PROD" == "$now_prod" && -n "$PRE_OVERLAY" && "$PRE_OVERLAY" == "$now_overlay" ]]; then
-    echo 'PRODUCTION_CONTAINER_IDS=UNCHANGED'
+    echo "PRODUCTION_CONTAINER_IDS=UNCHANGED"
   else
-    echo 'PRODUCTION_CONTAINER_IDS=NV_OR_CHANGED'
+    echo "PRODUCTION_CONTAINER_IDS=NV_OR_CHANGED"
     rc=1
   fi
   echo "GATE_10C17_EXIT_CODE=$rc"
@@ -107,25 +116,9 @@ CID="$(sudo -n docker ps -aq \
 test -n "$CID"
 test "$(sudo -n docker inspect "$CID" --format '{{.Image}}')" = "$EXPECTED_IMAGE"
 
-# A stopped process is not an isolation bypass. Capture only bounded,
-# redacted diagnostics before cleanup. This candidate has no credentials
-# or production state and cannot access the network.
+# If startup failed, the exit trap will collect safe categorical diagnostics.
 if [[ "$(sudo -n docker inspect "$CID" --format '{{.State.Running}}')" != "true" ]]; then
   echo "CANDIDATE_PROCESS=EXITED"
-  sudo -n docker inspect "$CID" --format 'EXIT_CODE={{.State.ExitCode}}
-OOM_KILLED={{.State.OOMKilled}}
-STATE_ERROR_PRESENT={{if .State.Error}}true{{else}}false{{end}}'
-  echo "===== REDACTED STARTUP ERRORS (MAX 20 LINES) ====="
-  sudo -n docker logs --tail 50 "$CID" 2>&1 | python3 -c '
-import re, sys
-rows = sys.stdin.read().splitlines()
-for line in rows[-20:]:
-    line = re.sub(r"(?i)(github_pat_|gh[pousr]_)[A-Za-z0-9_]+", "[REDACTED_TOKEN]", line)
-    line = re.sub(r"(?i)(bearer|authorization|token|api[_-]?key|password|secret)\s*[:=]\s*[^\s,;]+", r"\1=[REDACTED]", line)
-    line = re.sub(r"https?://[^\s]+", "[URL_REDACTED]", line)
-    print(line[:240])
-'
-  echo "LOCAL_API_INFO=BLOCKED_PROCESS_EXITED"
   exit 1
 fi
 
@@ -198,6 +191,7 @@ LOCAL_API_OK=0
 for attempt in {1..15}; do
   if sudo -n nsenter --target "$PID" --net -- \
        curl --silent --fail --max-time 2 --noproxy '*' \
+       --user 'opencode:synthetic-offline-gate-10c17-only' \
        'http://127.0.0.1:4096/api/info' | \
        python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,dict) and d.get("version")=="2.2.5"'; then
     LOCAL_API_OK=1
