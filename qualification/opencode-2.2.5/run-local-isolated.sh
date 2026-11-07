@@ -6,11 +6,13 @@ set -Eeuo pipefail
 umask 077
 
 UPSTREAM_SHA="9bbb8ce18c80f099e0e448775f59d965ead40a21"
-FIXTURE_SHA="7f6e5c34439322a9fc2ab193e6b8d951ec3e7815"
+FIXTURE_SHA="6971b1514393015a5f4488dcd276efbb8f9cc596"
 BUN_IMAGE="oven/bun:1.4.4"
 ROOT=""
 CONTAINER=""
 LOG="$(mktemp "${HOME}/opencode-mcp-225-XXXXXX.log")"
+# Preserve the original terminal output across the redirected test block.
+exec 3>&1
 
 cleanup() {
   if [[ -n "$CONTAINER" ]]; then
@@ -24,9 +26,9 @@ on_exit() {
   local rc=$?
   trap - EXIT
   cleanup
-  echo "LOG=$LOG"
-  echo "EXIT_CODE=$rc"
-  if [[ -f "$LOG" ]]; then tail -n 90 "$LOG"; fi
+  echo "LOG=$LOG" >&3
+  echo "EXIT_CODE=$rc" >&3
+  if [[ -f "$LOG" ]]; then tail -n 90 "$LOG" >&3; fi
   exit "$rc"
 }
 trap on_exit EXIT
@@ -75,7 +77,7 @@ root = pathlib.Path(sys.argv[1])
 expected = sys.argv[2]
 url = (
     "https://raw.githubusercontent.com/TsinjoOps/openhands-sandbox/"
-    "d34a3ecc4b6e71b54a52199c13a02580180c4e12/"
+    "1f117a54fb4a94d514fc02057ce08c385e8c5a5c/"
     "qualification/opencode-2.2.5/mcp-permission-gate.test.ts"
 )
 request = urllib.request.Request(url, headers={"User-Agent": "TsinjoOps-OC225-local-test"})
