@@ -1,7 +1,8 @@
 // Candidate integration test for anomalyco/opencode at SHA
 // 9bbb8ce18c80f099e0e448775f59d965ead40a21 (v2.2.5).
 // Copy to packages/core/test/mcp-permission-gate.test.ts in a separate
-// verified upstream checkout. NOT executed or validated yet.
+// verified upstream checkout. First runtime (2026-11-07) exposed a mistaken
+// outer-status assertion; this revised fixture remains to be retested.
 import { expect } from "bun:test"
 import { InMemoryTransport } from "@modelcontextprotocol/client"
 import { McpServer } from "@modelcontextprotocol/server"
@@ -142,8 +143,14 @@ it.live("real permission deny blocks MCP before the remote tool is called; allow
     // OpenCode registry. This intentionally keeps probe_ping visible, so
     // the denial must occur inside Permission.assert(), not catalog filtering.
     const denied = yield* invoke()
-    expect(denied.status).toBe("error")
-    expect(denied.error).toBeDefined()
+    // Code Mode returns an outer "completed" ToolExecution even when the
+    // inner program failed; inspect ExecuteOutput.error and toolCalls instead.
+    expect(denied.status).toBe("completed")
+    expect(denied.output?.error).toBe(true)
+    expect(denied.output?.toolCalls?.some((call: { status: string }) => call.status === "error")).toBe(true)
+    expect(denied.output?.output).toContain("Permission denied: probe_ping")
+    // This counter belongs to the in-memory MCP server: it is the security
+    // invariant, independent of how Code Mode wraps failures.
     expect(calls).toBe(0)
 
     yield* setPermissions([{ action: "*", resource: "*", effect: "allow" }])
