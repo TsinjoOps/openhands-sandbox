@@ -98,8 +98,8 @@ import re, sys
 rows = sys.stdin.read().splitlines()
 for line in rows[-20:]:
     line = re.sub(r"(?i)(github_pat_|gh[pousr]_)[A-Za-z0-9_]+", "[REDACTED_TOKEN]", line)
-    line = re.sub(r"(?i)(bearer|authorization|token|api[_-]?key|password|secret)\\s*[:=]\\s*[^\\s,;]+", r"\\1=[REDACTED]", line)
-    line = re.sub(r"https?://[^\\s]+", "[URL_REDACTED]", line)
+    line = re.sub(r"(?i)(bearer|authorization|token|api[_-]?key|password|secret)\s*[:=]\s*[^\s,;]+", r"\1=[REDACTED]", line)
+    line = re.sub(r"https?://[^\s]+", "[URL_REDACTED]", line)
     print(line[:240])
 '
   echo "LOCAL_API_INFO=BLOCKED_PROCESS_EXITED"
