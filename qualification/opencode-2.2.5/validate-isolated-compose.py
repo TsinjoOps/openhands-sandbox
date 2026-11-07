@@ -42,7 +42,7 @@ def main():
     require(not s.get("secrets"), "secret injection")
     require(not s.get("configs"), "external config injection")
     require(s.get("read_only") is True, "rootfs not read-only")
-    require(s.get("privileged") is False, "privileged container")
+    require(s.get("privileged", False) is False, "privileged container")
     require(s.get("user") == "10001:10001", "unexpected UID/GID")
     require("ALL" in s.get("cap_drop", []), "capabilities not dropped")
     require("no-new-privileges:true" in s.get("security_opt", []), "no-new-privileges absent")
