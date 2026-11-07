@@ -141,10 +141,22 @@ A no-secret, no-network synthetic stdio forwarding check was staged at `test_mcp
 **Next qualified observation:** perform a no-secret/no-egress compatibility preflight on the **exact candidate image** and the already-verified GitHub MCP binary (availability of Python 3, process tools, and ability to run the scoped guard). Do not repeat the now-qualified mock stdio tests without a new finding. Only after separate OS/network/credential custody qualification can the real binary receive a temporary read-only token. **Actual agent-origin read remains BLOCKED/NV**; production migration **NO-GO**.
 
 
-## Gate 10C.18h — Candidate runtime integration blocker (2026-11-07)
+## Gate 10C.18h — Exact candidate-image tool inventory PASS (operator, 2026-11-07)
 
-The Gate 10C.17 executable runner explicitly records that the **OpenCode 2.2.5 candidate image does not have `python3`**; its host-side namespace probe used Python from the host rather than from inside the image. The upstream exact-pin Dockerfile `anomalyco/opencode@9bbb8ce18c80f099e0e448775f59d965ead40a21:packages/cli/Dockerfile`, blob `dca2bb87122fccf0e792b60b5be7f8f8de0a6056`, is Alpine-based and copies a **compiled `opencode` executable** into `/usr/local/bin`. It does **not** demonstrate that a separate `bun` CLI interpreter is installed in the exact local derived image. Therefore both Python-in-container and Bun-in-container stdio-bridge execution are **BLOCKED/NV** until executable inventory; *do not claim native Bun is present* merely because OpenCode itself was built using Bun.
+**Operator-executed, credential-free, network-disabled runtime evidence:** image tag `local/tsinjoops-opencode:2.2.5-candidate` matched **exact** image ID `sha256:4accab77deb837737d073b6499147ff61ac6aae2161ebb3c1a0bc0a7b8e8c268`. In a short-lived non-root `docker run --network none --read-only --cap-drop ALL --security-opt no-new-privileges`, `/bin/sh` reported:
 
-The operator's **PASS** 16-case Python filter and 2-case simulated stdio test remain valid as **host Python** synthetic evidence; no claims transfer automatically to another runtime or a real MCP binary. Next choose the **least invasive** disposable runtime option after inspecting `python3`, `bun`, `node`, `opencode` availability inside the pinned candidate image and `go` on the VPS host (inventory only, no secrets or internet). Options to assess: a separately reviewed, single-binary stdio guard mounted read-only into the disposable OpenCode container; a separate controlled sidecar; or a justified disposable derived image. Avoid introducing Python or changing the production image by default. Any change of runtime or language requires independent testing of exact artifacts, an effective non-bypassable network boundary, and rollback.
+| Image executable | Observed |
+| --- | --- |
+| `opencode` | **PRESENT** |
+| `python3` | **ABSENT** |
+| `bun` | **ABSENT** |
+| `node` | **ABSENT** |
+| `go` | **ABSENT** |
 
-**State:** 10C.18g mock transport **PASS**; 10C.18h compatibility **BLOCKED/NV**; live agent invocation **BLOCKED/NV**; production migration **NO-GO**.
+The VPS host independently reported `HOST_GO=ABSENT`. The run printed `IMAGE_TOOL_INVENTORY=PASS`, `NO_CREDENTIALS=YES`, `NO_NETWORK=YES`, `PRODUCTION_CONTAINER_IDS=UNCHANGED`, `INVENTORY_EXIT_CODE=0`. One line in the user's pasted command appears corrupted, but the complete expected categorical observations and exit code confirm the probe completed. "Unchanged" compares IDs before/after this particular probe; it is not an independent production quality or service-health test.
+
+**Consequence:** the **PASS** scoped Python filter (16 cases) and simulated Python stdio bridge (2 cases) are valid only on the Python host where executed. They cannot be invoked using `mcp.servers.<name>.type="local"` inside this exact OpenCode candidate image without a suitable interpreter or packaged executable. The exact pinned upstream OpenCode 2.2.5 Dockerfile (Git blob `dca2bb87122fccf0e792b60b5be7f8f8de0a6056`) packages a standalone compiled `opencode` binary; its internal runtime does not imply a `bun` command on the image.
+
+**Technical direction (TO_ASSESS, no deployment authorization inferred):** prefer a **disposable derived candidate image** that adds only Python 3, the pinned scoped bridge and vetted GitHub MCP binary, while retaining the same OpenCode 2.2.5 executable, rather than a permanent external service or compiling an unreviewed new binary. This keeps native stdio MCP transport and reuses the qualified Python semantics. Before creating such an image, inspect the exact candidate's Alpine release/available package manager, pin the package source and digest, verify effective UID, runtime file ownership, binary ABI and a fail-closed network plan. Building a derived image would introduce a new package supply chain and temporary disk/network use; do not touch `opencode-lab`, `opencode-sw-overlay`, production configs, or add secrets during packaging. If supply-chain/ABI/integration conditions cannot be demonstrated, mark **BLOCKED** and reassess a separate short-lived sidecar rather than bypassing controls.
+
+**Gate verdict:** 10C.18h executable inventory **PASS**; packaged bridge candidate **NV/BLOCKED**; strict network and credential admission **NV/BLOCKED**; model-selected MCP tool call **NV/BLOCKED**; production migration **NO-GO**.
