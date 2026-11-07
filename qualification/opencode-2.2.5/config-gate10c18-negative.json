@@ -1,0 +1,15 @@
+{
+  "permissions": [
+    {"action": "*", "resource": "*", "effect": "deny"}
+  ],
+  "agents": {
+    "gate-producer": {
+      "mode": "primary",
+      "steps": 2,
+      "permissions": [
+        {"action": "execute", "resource": "*", "effect": "allow"},
+        {"action": "github_probe_get_file_contents", "resource": "*", "effect": "deny"}
+      ]
+    }
+  }
+}
