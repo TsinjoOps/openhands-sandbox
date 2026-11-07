@@ -94,11 +94,42 @@ PUBLISHED_PORTS={{json .HostConfig.PortBindings}}
 BIND_MOUNT_COUNT={{len .Mounts}}
 TMPFS_MOUNTS={{json .HostConfig.Tmpfs}}'
 
-# Read effective facts, not only source declarations.
-sudo -n docker inspect "$CID" --format \
-  '{{if not .State.Running}}FAIL_NOT_RUNNING{{end}}{{if ne .Config.User "10001:10001"}}FAIL_UID{{end}}{{if not .HostConfig.ReadonlyRootfs}}FAIL_ROOTFS{{end}}{{if ne .HostConfig.NetworkMode "none"}}FAIL_NETWORK{{end}}{{if .HostConfig.Privileged}}FAIL_PRIVILEGED{{end}}{{if .Mounts}}FAIL_MOUNTS{{end}}{{if .HostConfig.PortBindings}}FAIL_PORTS{{end}}' |
-  { output="$(cat)"; test -z "$output" || { printf '%s\n' "$output"; exit 1; }; }
-echo "RUNTIME_ISOLATION_CORE=PASS"
+# Read effective facts, not only source declarations. This in-process check
+# never prints Docker inspection JSON (which might contain sensitive metadata).
+sudo -n docker inspect "$CID" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert len(data) == 1
+o = data[0]
+h = o["HostConfig"]
+cfg = o["Config"]
+assert o["State"]["Running"] is True, "not running"
+assert cfg["User"] == "10001:10001", "uid"
+assert h["ReadonlyRootfs"] is True, "rootfs"
+assert h["NetworkMode"] == "none", "network"
+assert h["Privileged"] is False, "privileged"
+assert "ALL" in (h.get("CapDrop") or []), "capabilities"
+assert "no-new-privileges:true" in (h.get("SecurityOpt") or []), "privilege escalation"
+assert not o.get("Mounts"), "bind or volume mount"
+assert not h.get("PortBindings"), "published port"
+assert h.get("Memory") == 1073741824, "memory cap"
+assert h.get("PidsLimit") == 256, "pid cap"
+assert h.get("NanoCpus") == 1000000000, "cpu cap"
+tmp = h.get("Tmpfs") or {}
+expected = {
+    "/tmp", "/workspace",
+    "/home/opencode/.local/share/opencode",
+    "/home/opencode/.local/state/opencode",
+    "/home/opencode/.config/opencode",
+    "/home/opencode/.config/gh",
+    "/home/opencode/.config/git",
+}
+assert set(tmp) == expected, "tmpfs destinations"
+for key, opts in tmp.items():
+    if key != "/tmp":
+        assert "uid=10001" in opts and "gid=10001" in opts, "tmpfs owner"
+print("RUNTIME_ISOLATION_CORE=PASS")
+'
 
 echo "===== LOCAL LOOPBACK API CHECK (NO INFERENCE) ====="
 # The image previously included Python. HTTP is local *inside* the network-disabled container.
