@@ -65,7 +65,10 @@ def main():
     targets = set()
     for mount in mounts:
         if isinstance(mount, str):
-            target = mount.split(":", 1)[0]
+            target, sep, options = mount.partition(":")
+            require(bool(sep), "tmpfs options absent")
+            if target != "/tmp":
+                require("uid=10001" in options and "gid=10001" in options, "tmpfs nonroot ownership missing")
         elif isinstance(mount, dict):
             target = mount.get("target")
         else:
