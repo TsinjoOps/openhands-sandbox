@@ -23,7 +23,7 @@ stop() {
     echo "===== OWNED CANDIDATE CLEANUP ====="
     sudo -n docker compose --project-name "$PROJECT" \
       --profile manual-qualification-only -f "$COMPOSE_FILE" \
-      down --remove-orphans --timeout 5 || echo "CANDIDATE_CLEANUP=FAIL"
+      down --remove-orphans --timeout 5 || { echo "CANDIDATE_CLEANUP=FAIL"; rc=1; }
     if sudo -n docker ps -aq --filter "label=com.docker.compose.project=$PROJECT" | grep -q .; then
       echo "CANDIDATE_RESIDUE=FAIL"
       rc=1
@@ -103,7 +103,7 @@ echo "RUNTIME_ISOLATION_CORE=PASS"
 echo "===== LOCAL LOOPBACK API CHECK (NO INFERENCE) ====="
 # The image previously included Python. HTTP is local *inside* the network-disabled container.
 # No cookies, tokens, credentials, GitHub calls or model requests.
-sudo -n docker exec "$CID" python3 - <<'PY'
+sudo -n docker exec -i "$CID" python3 - <<'PY'
 import json
 import time
 from urllib.request import urlopen
