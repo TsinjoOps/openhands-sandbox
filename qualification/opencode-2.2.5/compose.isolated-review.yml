@@ -34,6 +34,8 @@ services:
       OPENCODE_DISABLE_MODELS_FETCH: "1"
       OPENCODE_DISABLE_PROJECT_CONFIG: "1"
       DO_NOT_TRACK: "1"
+      # Synthetic, public fixed value ONLY for an offline test. Never reuse for deployment.
+      OPENCODE_PASSWORD: "synthetic-offline-gate-10c17-only"
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=64m,mode=1777
       - /workspace:rw,nosuid,nodev,size=128m,mode=0700,uid=10001,gid=10001
