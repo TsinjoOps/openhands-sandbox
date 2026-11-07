@@ -20,7 +20,16 @@ cleanup() {
     rm -rf -- "$ROOT"
   fi
 }
-trap cleanup EXIT
+on_exit() {
+  local rc=$?
+  trap - EXIT
+  cleanup
+  echo "LOG=$LOG"
+  echo "EXIT_CODE=$rc"
+  if [[ -f "$LOG" ]]; then tail -n 90 "$LOG"; fi
+  exit "$rc"
+}
+trap on_exit EXIT
 
 {
   echo "===== LOCAL MCP TEST PRECHECK ====="
@@ -118,7 +127,3 @@ PY
   CONTAINER=""
   echo "NATIVE_MCP_TEST=PASS"
 } >"$LOG" 2>&1
-result=$?
-echo "LOG=$LOG"
-echo "EXIT_CODE=$result"
-tail -n 90 "$LOG"
