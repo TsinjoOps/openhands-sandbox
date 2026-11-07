@@ -47,6 +47,9 @@ stop() {
 trap stop EXIT
 
 echo "===== GATE 10C.17 PREFLIGHT ====="
+command -v nsenter >/dev/null
+command -v curl >/dev/null
+command -v python3 >/dev/null
 test "$(git hash-object "$COMPOSE_FILE")" = "$EXPECTED_MANIFEST_BLOB"
 test "$(git hash-object "$VALIDATOR")" = "$EXPECTED_VALIDATOR_BLOB"
 echo "SOURCE_INTEGRITY=PASS"
@@ -136,9 +139,6 @@ echo "===== LOCAL LOOPBACK API CHECK (HOST TOOL IN CANDIDATE NETWORK NS) ====="
 # entering ONLY the verified disposable candidate's network namespace.
 # A network=none container remains offline; curl accesses 127.0.0.1 only.
 # Do not print the API body, run a model, or contact external services.
-command -v nsenter >/dev/null
-command -v curl >/dev/null
-command -v python3 >/dev/null
 PID="$(sudo -n docker inspect "$CID" --format '{{.State.Pid}}')"
 [[ "$PID" =~ ^[0-9]+$ ]] && (( PID > 1 ))
 test "$(sudo -n docker inspect "$CID" --format '{{.HostConfig.NetworkMode}}')" = "none"
