@@ -27,6 +27,12 @@ cleanup() {
   sudo -n docker rm -f "$NAME" >/dev/null 2>&1 || true
   if (( BUILD_ATTEMPTED && ! KEEP_IMAGE )); then
     sudo -n docker image rm "$TAG" >/dev/null 2>&1 || true
+    if sudo -n docker image inspect "$TAG" >/dev/null 2>&1; then
+      echo "DERIVED_TAG_CLEANUP=FAIL"
+      rc=1
+    else
+      echo "DERIVED_TAG_CLEANUP=PASS"
+    fi
   fi
   local prod overlay
   prod="$(sudo -n docker inspect opencode-lab --format '{{.Id}}' 2>/dev/null || true)"
@@ -92,13 +98,29 @@ sudo -n timeout 40 docker run --rm --name "$NAME" \
   --entrypoint /usr/bin/python3 "$TAG" \
   -B /usr/local/libexec/tsinjoops/mcp-read-scope-guard.py --self-test
 
-echo "===== OPENCODE VERSION (OFFLINE) ====="
+echo "===== OPENCODE VERSION (OFFLINE; QUALIFIED TMPFS RUNTIME PATHS) ====="
+# OpenCode initializes its log/data directories even for --version.
+# Reuse the eight already qualified temporary paths from Gate 10C.17.
+# Preserve the read-only rootfs and network:none; no host binds or secrets.
 OPENCODE_VERSION_OUTPUT="$(sudo -n timeout 40 docker run --rm --name "$NAME" \
   --pull never --network none --read-only \
-  --user 10001:10001 \
+  --user 10001:10001 --workdir /workspace \
   --cap-drop ALL --security-opt no-new-privileges \
   --pids-limit 32 --memory 256m --cpus 0.5 \
+  --env HOME=/home/opencode \
+  --env XDG_CONFIG_HOME=/home/opencode/.config \
+  --env OPENCODE_DISABLE_AUTOUPDATE=1 \
+  --env OPENCODE_DISABLE_MODELS_FETCH=1 \
+  --env OPENCODE_DISABLE_PROJECT_CONFIG=1 \
+  --env DO_NOT_TRACK=1 \
   --tmpfs /tmp:rw,nosuid,nodev,size=16m,mode=1777 \
+  --tmpfs /workspace:rw,nosuid,nodev,size=32m,mode=0700,uid=10001,gid=10001 \
+  --tmpfs /home/opencode/.cache/opencode:rw,nosuid,nodev,size=64m,mode=0700,uid=10001,gid=10001 \
+  --tmpfs /home/opencode/.local/share/opencode:rw,nosuid,nodev,size=64m,mode=0700,uid=10001,gid=10001 \
+  --tmpfs /home/opencode/.local/state/opencode:rw,nosuid,nodev,size=16m,mode=0700,uid=10001,gid=10001 \
+  --tmpfs /home/opencode/.config/opencode:rw,nosuid,nodev,size=16m,mode=0700,uid=10001,gid=10001 \
+  --tmpfs /home/opencode/.config/gh:rw,nosuid,nodev,size=4m,mode=0700,uid=10001,gid=10001 \
+  --tmpfs /home/opencode/.config/git:rw,nosuid,nodev,size=4m,mode=0700,uid=10001,gid=10001 \
   --entrypoint /usr/local/bin/opencode "$TAG" --version)"
 [[ "$OPENCODE_VERSION_OUTPUT" =~ (^|[[:space:]])2\.2\.5($|[[:space:]]) ]] || {
   echo "OPENCODE_VERSION_CHECK=FAIL"
