@@ -98,3 +98,16 @@ The operator reports **Updated** after reducing the GitHub fine-grained PAT `tsi
 **PASS — minimal intended permission configuration and operator-reported save.** **NV — independently re-fetched post-save settings, actual credential scope/effectiveness and revocation.** The screenshot still contains `Update`/`Cancel` controls in the editing interface; do not misrepresent it as runtime token proof. The GitHub UI explicitly states that a fine-grained PAT can still read other public repositories; public-repository isolation must therefore be provided by the scoped MCP request boundary, not the token's repo picker alone.
 
 **Next gate:** provider identity with a separately verifiable non-resetting **2 USD** cap and short expiration, then immutable network/security admission and live agent-origin invocation. No token or provider secret copied into documentation; no production changes.
+
+
+## Gate 10C.18c — OpenRouter test-key admission checker (2026-11-07)
+
+**Source:** `verify-openrouter-key-cap.py`, sandbox commit `50fc22f961055fed1925ff5334ada55f1982cb51`, Git blob `97b94c3160ad609e0cd36504718b95e9c639d041`, SHA-256 `b93a4fa784ec751fc100f7922480dcadf69822beb7fcad7181040e7217f0aceb`. The exact Git blob matched the locally inspected/executed script.
+
+**PASS offline:** Python compile; `--self-test` 11 deterministic positive/negative admission scenarios; non-existent key-file yields `NETWORK_OR_INPUT_BLOCKED`, exit status 2, no secret output and no external request. Test remains a **local unit check**, not authenticated provider validation.
+
+**Source contract:** OpenRouter official documentation [GET current key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key), [Create key](https://openrouter.ai/docs/api/api-reference/api-keys/create-keys). A live GET checks `limit=2`, `0 <= limit_remaining <= 2`, `limit_reset=null`, `is_management_key=false`, `is_provisioning_key=false` and expiry after current UTC time but no later than 2026-11-14 00:00 UTC. The script prints only a categorical PASS/BLOCKED result, **never** raw key, request headers or complete API response. It reads a private same-owner, non-symlink key file (mode 0600/0400) and performs **one** TLS GET to `https://openrouter.ai/api/v1/key` with redirects, ambient HTTP proxies and retries disabled. It performs no model inference. The 2 USD key limit is a provider guardrail, **not an independently proven exact upper bound on transient or in-flight billing**; a separate local call count and runtime cutoff remain required.
+
+**Authority boundary:** Do not run `--key-file` on the VPS until the key custody and egress boundary are approved; prefer initial metadata verification on the trusted operator desktop. Do not send the key here, place it in GitHub/CI, or put it in a shell argument or environment dump. The key creation, live metadata GET, provider route and sandbox container credential injection all remain **NV/BLOCKED** until separately observed. No live provider call was made by ChatGPT during this step.
+
+**Status:** admission-script integrity/synthetic validation **PASS**; OpenRouter key settings and actual authenticated admission **NV**; Producer model-origin MCP invocation **BLOCKED**.
