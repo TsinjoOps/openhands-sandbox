@@ -56,3 +56,12 @@ Do not run this in the production VPS. No `pull_request`-triggered workflow has 
 - Authentik authorization, session/worktree isolation, revocation, and production rollback.
 
 Do not merge, deploy, expose credentials or upgrade OpenCode as part of this fixture. Production migration **NO-GO**.
+
+
+## Read-only Actions trigger inventory before any PR or activation
+
+Use the checked-in `preflight_actions.py` from a separate local machine **without an authentication token**. It calls only public GitHub GET endpoints for `TsinjoOps/openhands-sandbox`; any rate limiting, private repo visibility, missing workflow listing or network failure is **BLOCKED**, not PASS. It inventories active and disabled workflows and prints conservative indicators of `push` / `pull_request` / `workflow_run` patterns; this is a static heuristic, **not a complete YAML or GitHub Actions event policy validator**. In particular, potentially triggered workflows require manual review of precise YAML, paths, branches, and repository Actions rules before any Draft PR or merge. Results must be copied into the qualification evidence and independently cross-checked with the GitHub Actions UI.
+
+Public source (at pinned revision): `https://raw.githubusercontent.com/TsinjoOps/openhands-sandbox/0bb66cec7f12a2221139054ac526a626d3f5265f/qualification/opencode-2.2.5/preflight_actions.py`. Read the script before running; do not paste any `GITHUB_TOKEN` or use `gh auth` for this preflight.
+
+Actions billing, organization policy, runner quotas and any cost authorization still require inspection by the organization owner via GitHub's administrative UI. No activation/dispatch has occurred.
