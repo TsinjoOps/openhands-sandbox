@@ -131,32 +131,41 @@ for key, opts in tmp.items():
 print("RUNTIME_ISOLATION_CORE=PASS")
 '
 
-echo "===== LOCAL LOOPBACK API CHECK (NO INFERENCE) ====="
-# The image previously included Python. HTTP is local *inside* the network-disabled container.
-# No cookies, tokens, credentials, GitHub calls or model requests.
-sudo -n docker exec -i "$CID" python3 - <<'PY'
-import json
-import time
-from urllib.request import urlopen
-
-for attempt in range(15):
-    try:
-        with urlopen("http://127.0.0.1:4096/api/info", timeout=2) as response:
-            payload = json.load(response)
-            if response.status != 200:
-                raise RuntimeError("HTTP status")
-            # Do not log the payload: only the expected version and status.
-            if not isinstance(payload, dict) or payload.get("version") != "2.2.5":
-                raise RuntimeError("unexpected version")
-            print("LOCAL_API_INFO=PASS")
-            print("EXPECTED_VERSION=2.2.5")
-            break
-    except Exception:
-        if attempt == 14:
-            print("LOCAL_API_INFO=FAIL")
-            raise
-        time.sleep(1)
-PY
+echo "===== LOCAL LOOPBACK API CHECK (HOST TOOL IN CANDIDATE NETWORK NS) ====="
+# Image 2.2.5 has no python3 executable. Host-side curl + Python are used,
+# entering ONLY the verified disposable candidate's network namespace.
+# A network=none container remains offline; curl accesses 127.0.0.1 only.
+# Do not print the API body, run a model, or contact external services.
+command -v nsenter >/dev/null
+command -v curl >/dev/null
+command -v python3 >/dev/null
+PID="$(sudo -n docker inspect "$CID" --format '{{.State.Pid}}')"
+[[ "$PID" =~ ^[0-9]+$ ]] && (( PID > 1 ))
+test "$(sudo -n docker inspect "$CID" --format '{{.HostConfig.NetworkMode}}')" = "none"
+if sudo -n nsenter --target "$PID" --net -- true; then
+  echo "NET_NAMESPACE_ENTRY=PASS"
+else
+  echo "NET_NAMESPACE_ENTRY=BLOCKED"
+  exit 1
+fi
+LOCAL_API_OK=0
+for attempt in {1..15}; do
+  if sudo -n nsenter --target "$PID" --net -- \
+       curl --silent --fail --max-time 2 --noproxy '*' \
+       'http://127.0.0.1:4096/api/info' | \
+       python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,dict) and d.get("version")=="2.2.5"'; then
+    LOCAL_API_OK=1
+    break
+  fi
+  sleep 1
+done
+if (( LOCAL_API_OK )); then
+  echo "LOCAL_API_INFO=PASS"
+  echo "EXPECTED_VERSION=2.2.5"
+else
+  echo "LOCAL_API_INFO=FAIL"
+  exit 1
+fi
 
 echo "NO_MODEL_CALL=YES"
 echo "NO_GITHUB_CREDENTIAL=YES"
