@@ -36,9 +36,9 @@ services:
       DO_NOT_TRACK: "1"
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=64m,mode=1777
-      - /workspace:rw,nosuid,nodev,size=128m,mode=0700
-      - /home/opencode/.local/share/opencode:rw,nosuid,nodev,size=128m,mode=0700
-      - /home/opencode/.local/state/opencode:rw,nosuid,nodev,size=32m,mode=0700
-      - /home/opencode/.config/opencode:rw,nosuid,nodev,size=32m,mode=0700
-      - /home/opencode/.config/gh:rw,nosuid,nodev,size=8m,mode=0700
-      - /home/opencode/.config/git:rw,nosuid,nodev,size=8m,mode=0700
+      - /workspace:rw,nosuid,nodev,size=128m,mode=0700,uid=10001,gid=10001
+      - /home/opencode/.local/share/opencode:rw,nosuid,nodev,size=128m,mode=0700,uid=10001,gid=10001
+      - /home/opencode/.local/state/opencode:rw,nosuid,nodev,size=32m,mode=0700,uid=10001,gid=10001
+      - /home/opencode/.config/opencode:rw,nosuid,nodev,size=32m,mode=0700,uid=10001,gid=10001
+      - /home/opencode/.config/gh:rw,nosuid,nodev,size=8m,mode=0700,uid=10001,gid=10001
+      - /home/opencode/.config/git:rw,nosuid,nodev,size=8m,mode=0700,uid=10001,gid=10001
