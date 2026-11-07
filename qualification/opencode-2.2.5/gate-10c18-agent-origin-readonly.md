@@ -90,3 +90,11 @@ Resource sample: MemTotal 11,956,728 kB; MemAvailable 5,427,672 kB (~5.18 GiB), 
 **GitHub UI caveat:** the repository-selection control explicitly states public repositories remain readable (read-only), even when `Only select repositories` is chosen. Accordingly **this PAT does not enforce a universal one-repository boundary for public read requests**. The agent must also be constrained by MCP tool selection, effective deny rules, allowed outbound network destinations and auditable single-tool receipts. No secret value, access token plaintext, or repo outside TsinjoOps was inspected.
 
 **Gate verdict:** UI configuration **PASS with qualification**; save/effective permissions, actual key usability, model provider key, spending cap, egress and agent invocation remain **NV/BLOCKED**. Do not infer a runtime GitHub access test from this screenshot.
+
+## Gate 10C.18b-bis — Minimal PAT configuration reported saved (2026-11-07)
+
+The operator reports **Updated** after reducing the GitHub fine-grained PAT `tsinjoops-opencode-mcp-poc-read` to **two repository permissions**. Screenshot of the configuration displays `Only select repositories` with exactly `TsinjoOps/openhands-sandbox`, `Contents: Read-only`, and `Metadata: Read-only (Required)`. `Issues` and `Pull requests` are no longer present. The prior screenshot recorded expiration **2026-11-13**; this new cropped screenshot does not independently re-show the expiration.
+
+**PASS — minimal intended permission configuration and operator-reported save.** **NV — independently re-fetched post-save settings, actual credential scope/effectiveness and revocation.** The screenshot still contains `Update`/`Cancel` controls in the editing interface; do not misrepresent it as runtime token proof. The GitHub UI explicitly states that a fine-grained PAT can still read other public repositories; public-repository isolation must therefore be provided by the scoped MCP request boundary, not the token's repo picker alone.
+
+**Next gate:** provider identity with a separately verifiable non-resetting **2 USD** cap and short expiration, then immutable network/security admission and live agent-origin invocation. No token or provider secret copied into documentation; no production changes.
