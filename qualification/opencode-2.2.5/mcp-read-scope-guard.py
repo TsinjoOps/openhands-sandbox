@@ -147,7 +147,10 @@ def run(binary, token_file):
                         if type(mid) in (str, int) and mid in ids:
                             ids.discard(mid)
                             result = data.get("result")
-                            if isinstance(result, dict) and result.get("isError") is False and result.get("content"):
+                            if (isinstance(result, dict)
+                                    and result.get("isError", False) is False
+                                    and isinstance(result.get("content"), list)
+                                    and bool(result["content"])):
                                 state["success"] += 1
                                 print("MCP_DOWNSTREAM_RESULT=PASS", file=sys.stderr, flush=True)
                             else:
