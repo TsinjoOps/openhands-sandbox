@@ -1,0 +1,23 @@
+# Gate 10C.18i: ephemeral qualification-only image. Never deploy as opencode-lab.
+# The caller MUST verify the local base image ID before building.
+FROM local/tsinjoops-opencode:2.2.5-candidate
+
+USER root
+ARG PYTHON_PACKAGE_VERSION=3.14.10-r1
+
+RUN set -eu; \
+    test "$(cat /etc/alpine-release)" = "3.24.3"; \
+    test "$(apk --print-arch)" = "x86_64"; \
+    printf '%s\n' 'https://dl-cdn.alpinelinux.org/alpine/v3.24/main' > /etc/apk/repositories; \
+    apk add --no-cache "python3=${PYTHON_PACKAGE_VERSION}"; \
+    python3 --version; \
+    test "$(python3 -c 'import sys; print(sys.version_info[:2] == (3, 14))')" = "True"
+
+COPY --chmod=0555 mcp-read-scope-guard.py /usr/local/libexec/tsinjoops/mcp-read-scope-guard.py
+
+# Keep the original candidate's non-root operational identity.
+USER 10001:10001
+LABEL org.tsinjoops.scope="disposable-gate10c18-python-only" \
+      org.tsinjoops.production="forbidden"
+
+# The original image's OpenCode ENTRYPOINT is deliberately preserved.
