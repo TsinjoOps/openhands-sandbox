@@ -65,3 +65,12 @@ Use the checked-in `preflight_actions.py` from a separate local machine **withou
 Public source (at pinned revision): `https://raw.githubusercontent.com/TsinjoOps/openhands-sandbox/0bb66cec7f12a2221139054ac526a626d3f5265f/qualification/opencode-2.2.5/preflight_actions.py`. Read the script before running; do not paste any `GITHUB_TOKEN` or use `gh auth` for this preflight.
 
 Actions billing, organization policy, runner quotas and any cost authorization still require inspection by the organization owner via GitHub's administrative UI. No activation/dispatch has occurred.
+
+
+## Local isolated execution alternative (no GitHub Actions)
+
+Because `TsinjoOps/openhands-sandbox` has no repo or shared self-hosted runner (operator screenshot, 2026-11-07), and activating a new `workflow_dispatch` would require changing `main`, the **preferred next operational gate** is to execute the focused test on the operator's separate Ubuntu desktop, using a disposable Docker container rather than deploying any runner or changing the VPS.
+
+`run-local-isolated.sh` (committed to this branch) creates a private temporary checkout of exact OpenCode upstream SHA `9bbb8ce18c80f099e0e448775f59d965ead40a21`, downloads the fixture and verifies its Git blob SHA `7f6e5c34439322a9fc2ab193e6b8d951ec3e7815`, then pulls `oven/bun:1.4.4` and installs its frozen lockfile with lifecycle scripts disabled inside a bounded container. Dependency installation uses internet access to public registries; the **actual Bun test container has `--network none`**. Docker containers have no host Docker socket, GitHub credentials, or host home mounted. The root filesystem is read-only, capabilities dropped, no-new-privileges enabled, 2 CPUs, 5 GiB RAM and 256 processes. Temporary worktree and Docker container are cleaned on exit; a separate private log remains under the Ubuntu user's home. Exit codes and the last 90 log lines are shown even on failure. The download/pull/install/test may consume local disk, bandwidth and CPU; do not execute on VPS.
+
+The script is **not yet executed or independently runtime-verified**. The user should inspect the exact script and run it as a **child Bash process**, never paste `set -e` into their interactive shell. A failing test is evidence to repair the fixture or identify a runtime blocker, not grounds to assert OpenCode is insecure. Successful isolated test establishes native test-service permission behavior, **not Web/Desktop end-to-end identity isolation**.
