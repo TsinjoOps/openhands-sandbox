@@ -20,33 +20,48 @@ stop() {
   rc=$?
   trap - EXIT INT TERM
   if (( STARTED )); then
-    # Failure diagnostics must precede cleanup even if the candidate was
-    # running at an earlier inspect and exited during a later assertion.
     if (( rc != 0 )); then
       if [[ -z "$CID" ]]; then
-        CID="$(sudo -n docker ps -aq \
-          --filter "label=com.docker.compose.project=$PROJECT" \
-          --filter "label=com.docker.compose.service=opencode-review" 2>/dev/null || true)"
+        CID="$(sudo -n docker ps -aq --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=opencode-review" 2>/dev/null || true)"
       fi
-      if [[ -n "$CID" && "$CID" != *
-    sudo -n docker compose --project-name "$PROJECT" \
-      --profile manual-qualification-only -f "$COMPOSE_FILE" \
-      down --remove-orphans --timeout 5 || { echo "CANDIDATE_CLEANUP=FAIL"; rc=1; }
+      if [[ -n "$CID" ]] && [[ "$CID" != *' '* ]] && test "$(sudo -n docker inspect "$CID" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || true)" = "$PROJECT"; then
+        echo '===== FAILURE STATE BEFORE CLEANUP ====='
+        sudo -n docker inspect "$CID" --format 'DIAG_RUNNING={{.State.Running}}
+DIAG_EXIT_CODE={{.State.ExitCode}}
+DIAG_OOM_KILLED={{.State.OOMKilled}}
+DIAG_ERROR_PRESENT={{if .State.Error}}true{{else}}false{{end}}' || true
+        echo '===== BOUNDED ERROR SIGNATURES ====='
+        sudo -n docker logs --tail 60 "$CID" 2>/dev/null | python3 -c '
+import re, sys
+lines = sys.stdin.read(16000).splitlines()
+p = r"(error|failed|fatal|panic|exception|denied|readonly|read-only|not found|ENOENT|EACCES|EPERM|EROFS|ENOSPC|cannot|unable|missing)"
+for line in [x for x in lines if re.search(p, x, re.I)][-12:]:
+    line = re.sub(r"(?i)(github_pat_|gh[pousr]_)[A-Za-z0-9_]+", "[TOKEN]", line)
+    line = re.sub(r"(?i)(bearer|authorization|token|api[_-]?key|password|secret)\s*[:=]\s*[^\s,;]+", r"\1=[REDACTED]", line)
+    line = re.sub(r"https?://[^\s]+", "[URL]", line)
+    print(line[:220])
+' || echo 'DIAG_LOG_EXTRACTION=BLOCKED'
+      else
+        echo 'FAILURE_DIAGNOSTICS=BLOCKED_NO_OWNED_CONTAINER'
+      fi
+    fi
+    echo '===== OWNED CANDIDATE CLEANUP ====='
+    sudo -n docker compose --project-name "$PROJECT" --profile manual-qualification-only -f "$COMPOSE_FILE" down --remove-orphans --timeout 5 || { echo 'CANDIDATE_CLEANUP=FAIL'; rc=1; }
     if sudo -n docker ps -aq --filter "label=com.docker.compose.project=$PROJECT" | grep -q .; then
-      echo "CANDIDATE_RESIDUE=FAIL"
+      echo 'CANDIDATE_RESIDUE=FAIL'
       rc=1
     else
-      echo "CANDIDATE_RESIDUE=PASS"
+      echo 'CANDIDATE_RESIDUE=PASS'
     fi
   else
-    echo "CANDIDATE_START=NOT_ATTEMPTED_OR_FAILED"
+    echo 'CANDIDATE_START=NOT_ATTEMPTED_OR_FAILED'
   fi
   now_prod="$(sudo -n docker inspect opencode-lab --format '{{.Id}}' 2>/dev/null || true)"
   now_overlay="$(sudo -n docker inspect opencode-sw-overlay --format '{{.Id}}' 2>/dev/null || true)"
   if [[ -n "$PRE_PROD" && "$PRE_PROD" == "$now_prod" && -n "$PRE_OVERLAY" && "$PRE_OVERLAY" == "$now_overlay" ]]; then
-    echo "PRODUCTION_CONTAINER_IDS=UNCHANGED"
+    echo 'PRODUCTION_CONTAINER_IDS=UNCHANGED'
   else
-    echo "PRODUCTION_CONTAINER_IDS=NV_OR_CHANGED"
+    echo 'PRODUCTION_CONTAINER_IDS=NV_OR_CHANGED'
     rc=1
   fi
   echo "GATE_10C17_EXIT_CODE=$rc"
