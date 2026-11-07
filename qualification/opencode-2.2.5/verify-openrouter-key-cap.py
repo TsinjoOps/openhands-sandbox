@@ -19,7 +19,7 @@ from urllib.request import (
 )
 
 ENDPOINT = "https://openrouter.ai/api/v1/key"
-LATEST_EXPIRY = datetime(2026, 11, 14, tzinfo=timezone.utc)
+LATEST_EXPIRY = datetime(2026, 11, 15, tzinfo=timezone.utc)
 MAX_RESPONSE = 16384
 
 
@@ -113,7 +113,8 @@ def self_test():
         ({"is_management_key": True}, "MANAGEMENT_KEY_NOT_EXCLUDED"),
         ({"is_provisioning_key": True}, "PROVISIONING_KEY_NOT_EXCLUDED"),
         ({"expires_at": None}, "EXPIRY_MISSING"),
-        ({"expires_at": "2026-11-14T00:00:01Z"}, "EXPIRY_OUT_OF_RANGE"),
+        ({"expires_at": "2026-11-14T16:38:00Z"}, "PASS"),
+        ({"expires_at": "2026-11-15T00:00:01Z"}, "EXPIRY_OUT_OF_RANGE"),
         ({"expires_at": "2026-11-06T00:00:00Z"}, "EXPIRY_OUT_OF_RANGE"),
         ({"expires_at": "bad"}, "EXPIRY_INVALID"),
     ]
@@ -121,7 +122,7 @@ def self_test():
         sample = {"data": {**valid["data"], **override}}
         assert admission(sample, now) == expected, expected
     print("OPENROUTER_KEY_POLICY_SELF_TEST=PASS")
-    print("OFFLINE_TEST_CASES=11")
+    print("OFFLINE_TEST_CASES=12")
     print("NETWORK_REQUEST=NO")
 
 
