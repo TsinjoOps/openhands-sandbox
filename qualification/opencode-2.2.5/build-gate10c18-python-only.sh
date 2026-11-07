@@ -122,7 +122,9 @@ OPENCODE_VERSION_OUTPUT="$(sudo -n timeout 40 docker run --rm --name "$NAME" \
   --tmpfs /home/opencode/.config/gh:rw,nosuid,nodev,size=4m,mode=0700,uid=10001,gid=10001 \
   --tmpfs /home/opencode/.config/git:rw,nosuid,nodev,size=4m,mode=0700,uid=10001,gid=10001 \
   --entrypoint /usr/local/bin/opencode "$TAG" --version)"
-[[ "$OPENCODE_VERSION_OUTPUT" =~ (^|[[:space:]])2\.2\.5($|[[:space:]]) ]] || {
+# The exact pinned CLI prints "opencode v2.2.5" (not a bare version token).
+# Validate the complete output; do not accept 2.2.50 or unrelated text.
+[[ "$OPENCODE_VERSION_OUTPUT" == "opencode v2.2.5" ]] || {
   echo "OPENCODE_VERSION_CHECK=FAIL"
   exit 1
 }
