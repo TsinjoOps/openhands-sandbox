@@ -11,6 +11,7 @@ SCRIPT = Path(__file__).with_name("validate-isolated-compose.py")
 TARGETS = [
     "/tmp",
     "/workspace",
+    "/home/opencode/.cache/opencode",
     "/home/opencode/.local/share/opencode",
     "/home/opencode/.local/state/opencode",
     "/home/opencode/.config/opencode",
@@ -24,6 +25,7 @@ ENV = {
     "OPENCODE_DISABLE_MODELS_FETCH": "1",
     "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
     "DO_NOT_TRACK": "1",
+    "OPENCODE_PASSWORD": "synthetic-offline-gate-10c17-only",
 }
 
 def rendered():
@@ -63,6 +65,16 @@ class ComposeGateTests(unittest.TestCase):
         result = verify(data)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("privileged container", result.stdout)
+
+    def test_wrong_synthetic_password_denied(self):
+        data = rendered()
+        data["services"]["opencode-review"]["environment"]["OPENCODE_PASSWORD"] = "unexpected"
+        self.assertNotEqual(verify(data).returncode, 0)
+
+    def test_cache_tmpfs_missing_denied(self):
+        data = rendered()
+        data["services"]["opencode-review"]["tmpfs"] = [m for m in data["services"]["opencode-review"]["tmpfs"] if not m.startswith("/home/opencode/.cache/opencode:")]
+        self.assertNotEqual(verify(data).returncode, 0)
 
     def test_network_enabled_denied(self):
         data = rendered()
