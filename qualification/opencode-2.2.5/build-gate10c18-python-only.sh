@@ -93,13 +93,18 @@ sudo -n timeout 40 docker run --rm --name "$NAME" \
   -B /usr/local/libexec/tsinjoops/mcp-read-scope-guard.py --self-test
 
 echo "===== OPENCODE VERSION (OFFLINE) ====="
-sudo -n timeout 40 docker run --rm --name "$NAME" \
+OPENCODE_VERSION_OUTPUT="$(sudo -n timeout 40 docker run --rm --name "$NAME" \
   --pull never --network none --read-only \
   --user 10001:10001 \
   --cap-drop ALL --security-opt no-new-privileges \
   --pids-limit 32 --memory 256m --cpus 0.5 \
   --tmpfs /tmp:rw,nosuid,nodev,size=16m,mode=1777 \
-  --entrypoint /usr/local/bin/opencode "$TAG" --version
+  --entrypoint /usr/local/bin/opencode "$TAG" --version)"
+[[ "$OPENCODE_VERSION_OUTPUT" =~ (^|[[:space:]])2\.2\.5($|[[:space:]]) ]] || {
+  echo "OPENCODE_VERSION_CHECK=FAIL"
+  exit 1
+}
+echo "OPENCODE_VERSION_CHECK=PASS"
 
 echo "NO_PROVIDER_OR_GITHUB_TOKEN=YES"
 echo "NO_MODEL_OR_GITHUB_MCP_CALL=YES"
