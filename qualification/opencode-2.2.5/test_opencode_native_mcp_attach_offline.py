@@ -106,6 +106,54 @@ def main():
         ) for line in lines)
         bad = any("failed" in line.lower() or "needs authentication" in line.lower()
                   for line in lines if "github-readonly-probe" in line)
+        if cmd.returncode == 0 and (not connected or bad):
+            # Summarize only fixed, non-secret categories. Do not emit raw
+            # CLI output, stderr, config JSON, or process environment.
+            status = (
+                "NO_SERVERS" if "No MCP servers configured" in output
+                else "FAILED" if "failed" in output.lower()
+                else "NEEDS_AUTH" if "needs authentication" in output.lower()
+                else "PENDING" if "pending" in output.lower()
+                else "DISABLED" if "disabled" in output.lower()
+                else "CONNECTED_UNPARSED" if "connected" in output.lower()
+                else "UNRECOGNIZED"
+            )
+            print("OPENCODE_MCP_LIST_CLASS=" + status, flush=True)
+            source = (cmd.stdout + "\n" + cmd.stderr).lower()
+            reason = (
+                "ENOENT" if "no such file" in source or "enoent" in source
+                else "EACCES" if "permission denied" in source or "eacces" in source
+                else "EXEC" if "exec format" in source or "spawn" in source
+                else "TIMEOUT" if "timed out" in source or "timeout" in source
+                else "CONNECTION" if "connection closed" in source
+                else "CONFIG" if "invalid config" in source or "configuration" in source
+                else "UNCLASSIFIED"
+            )
+            print("OPENCODE_MCP_FAILURE_CATEGORY=" + reason, flush=True)
+
+            debug = cli(["debug", "config", "--standalone"], env, 20)
+            config_class = "COMMAND_FAILED" if debug.returncode else "UNPARSEABLE"
+            if debug.returncode == 0:
+                try:
+                    parsed = json.loads(debug.stdout)
+                    mcp = parsed.get("mcp") if isinstance(parsed, dict) else None
+                    servers = mcp.get("servers") if isinstance(mcp, dict) else None
+                    config_class = (
+                        "SERVER_PRESENT" if isinstance(servers, dict)
+                        and "github-readonly-probe" in servers
+                        else "MCP_ABSENT"
+                    )
+                except (ValueError, TypeError):
+                    pass
+            print("OPENCODE_EFFECTIVE_MCP_CONFIG=" + config_class, flush=True)
+
+            paths = cli(["debug", "paths"], env, 15)
+            config_path = (
+                "MATCH" if paths.returncode == 0
+                and str(CFG_DIR) in paths.stdout
+                else "MISMATCH_OR_UNAVAILABLE"
+            )
+            print("OPENCODE_CONFIG_DIRECTORY=" + config_path, flush=True)
         demand(cmd.returncode == 0, "OPENCODE_MCP_LIST_NONZERO")
         demand(connected and not bad, "OPENCODE_MCP_NOT_CONNECTED")
         print("OPENCODE_NATIVE_MCP_CONNECTED=PASS", flush=True)
