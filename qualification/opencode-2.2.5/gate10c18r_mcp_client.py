@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import selectors
+import socket
 import signal
 import subprocess
 import sys
@@ -94,6 +95,29 @@ def main():
         "path": "README.md", "sha": "32ede1461b5120beabb318167c8cc914d1145f2a",
     }, "GITHUB_SCOPE_DRIFT")
     print("PINNED_GITHUB_MCP_AND_SCOPE=PASS", flush=True)
+
+    # Independently verify the client cannot connect directly to the Internet
+    # before starting any GitHub MCP subprocess. These are denial probes only.
+    for ip, port in (("1.1.1.1", 443), ("8.8.8.8", 53)):
+        try:
+            with socket.create_connection((ip, port), timeout=2):
+                raise RuntimeError("DIRECT_IPV4_EGRESS_ALLOWED")
+        except OSError:
+            pass
+    print("DIRECT_IPV4_DENIAL_SAMPLES=PASS", flush=True)
+
+    # A TCP readiness check sends no CONNECT or HTTP request and consumes
+    # none of the proxy's one-tunnel admission budget.
+    ready_by = time.monotonic() + 12
+    while True:
+        try:
+            with socket.create_connection(("tsinjoops-github-egress", 3128),
+                                          timeout=2):
+                break
+        except OSError:
+            require(time.monotonic() < ready_by, "PROXY_NOT_READY")
+            time.sleep(0.3)
+    print("GITHUB_PROXY_READY=PASS", flush=True)
 
     # The token is synthetic, stored exclusively in container tmpfs.
     with tempfile.TemporaryDirectory(prefix="gate10c18r-", dir="/tmp") as tmp:
