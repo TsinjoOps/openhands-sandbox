@@ -58,8 +58,10 @@ class Handler(socketserver.BaseRequestHandler):
                 self.request.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
                 return
             with upstream:
-                upstream.setblocking(False)
-                self.request.setblocking(False)
+                # select() determines readability; bounded blocking sendall()
+                # avoids losing short TLS records to EWOULDBLOCK.
+                upstream.settimeout(3)
+                self.request.settimeout(3)
                 self.request.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 sockets = [self.request, upstream]
                 budget = MAX_BYTES
