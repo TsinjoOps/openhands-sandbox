@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Gate 10C.18l: no-credential native OpenCode->MCP attachment, offline.
+# Gate 10C.18m: one persistent OpenCode instance; native MCP registry, offline.
 # Requires previously qualified Python-enabled image. No Docker image changes.
 set -euo pipefail
 umask 077
@@ -60,7 +60,7 @@ printf '%s  %s\n' "$MCP_SHA" "$STAGE/github-mcp-server" | sha256sum -c - >/dev/n
 chmod 0555 "$STAGE/github-mcp-server"
 echo "MCP_BINARY_HASH=PASS"
 
-echo "===== OPEN CODE NATIVE MCP ATTACH (NO NETWORK, SYNTHETIC IDENTITY) ====="
+echo "===== ONE OPEN CODE SERVER: CONFIG + MCP REGISTRY (OFFLINE) ====="
 sudo -n timeout 90 docker run --rm --name "$NAME" \
   --pull never --network none --read-only \
   --user 10001:10001 --workdir /workspace \
