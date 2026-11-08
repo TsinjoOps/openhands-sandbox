@@ -103,39 +103,70 @@ def main():
                "SYNTHETIC_CONFIG_NOT_PRIVATE")
         print("SYNTHETIC_MCP_CONFIG=PASS", flush=True)
 
-        # Check effective configuration BEFORE attempting native connection.
+        # Compare the two exact 2.2.5 config channels using *synthetic* data.
+        # First inspect the explicit-file channel without assuming that a
+        # matching Document entry exists; that was the prior false-positive.
         effective = cli(["debug", "config", "--standalone"], env, 20)
         demand(effective.returncode == 0, "OPENCODE_DEBUG_CONFIG_NONZERO")
         try:
             decoded = json.loads(effective.stdout)
         except (ValueError, TypeError):
             raise RuntimeError("OPENCODE_DEBUG_CONFIG_NOT_JSON")
-        # Exact upstream 2.2.5 ConfigHandler.config.get returns Config.Entry[]:
-        # each item is a Document {type, path?, info} or a Directory.
-        # The previous fixture incorrectly assumed a top-level .mcp object.
-        if isinstance(decoded, list):
-            entries = decoded
-        elif isinstance(decoded, dict) and isinstance(decoded.get("data"), list):
-            # Tolerate an SDK response envelope without loosening document matching.
-            entries = decoded["data"]
-        else:
+
+        def entries_from(decoded):
+            if isinstance(decoded, list):
+                return decoded
+            if isinstance(decoded, dict) and isinstance(decoded.get("data"), list):
+                return decoded["data"]
             raise RuntimeError("OPENCODE_DEBUG_CONFIG_SHAPE")
+
+        def has_server(entry):
+            if not isinstance(entry, dict) or entry.get("type") != "document":
+                return False
+            info = entry.get("info")
+            mcp = info.get("mcp") if isinstance(info, dict) else None
+            servers = mcp.get("servers") if isinstance(mcp, dict) else None
+            return isinstance(servers, dict) and "github-readonly-probe" in servers
+
+        entries = entries_from(decoded)
         print("OPENCODE_DEBUG_CONFIG_ENTRIES=PASS", flush=True)
-        documents = [
+        exact_file = [
             entry for entry in entries
             if isinstance(entry, dict) and entry.get("type") == "document"
             and entry.get("path") == str(config)
         ]
-        print("OPENCODE_EXPLICIT_DOCUMENT=" +
-              ("PRESENT" if len(documents) == 1 else "ABSENT_OR_AMBIGUOUS"),
+        file_present = len(exact_file) == 1 and has_server(exact_file[0])
+        print("OPENCODE_EXPLICIT_FILE_MCP=" +
+              ("PRESENT" if file_present else "NOT_CONFIRMED"),
               flush=True)
-        demand(len(documents) == 1, "OPENCODE_EXPLICIT_FILE_NOT_DISCOVERED")
-        info = documents[0].get("info")
-        mcp = info.get("mcp") if isinstance(info, dict) else None
-        servers = mcp.get("servers") if isinstance(mcp, dict) else None
-        demand(isinstance(servers, dict)
-               and "github-readonly-probe" in servers,
-               "OPENCODE_EXPLICIT_MCP_ENTRY_NOT_LOADED")
+
+        if file_present:
+            # Prefer the file mode if the exact file source is observed.
+            print("OPENCODE_CONFIG_ROUTE=EXPLICIT_FILE", flush=True)
+        else:
+            # Explicit config-content is supported by the same exact upstream
+            # server-process.ts and Config.load() code. Its Document has no
+            # source path, by design. Only synthetic config (no secret) is passed.
+            env.pop("OPENCODE_CONFIG", None)
+            env["OPENCODE_CONFIG_CONTENT"] = config.read_text(encoding="utf-8")
+            content_probe = cli(["debug", "config", "--standalone"], env, 20)
+            demand(content_probe.returncode == 0,
+                   "OPENCODE_CONTENT_CONFIG_NONZERO")
+            try:
+                content_entries = entries_from(json.loads(content_probe.stdout))
+            except (ValueError, TypeError):
+                raise RuntimeError("OPENCODE_CONTENT_CONFIG_NOT_JSON")
+            virtual = [
+                entry for entry in content_entries
+                if isinstance(entry, dict) and entry.get("type") == "document"
+                and entry.get("path") is None and has_server(entry)
+            ]
+            print("OPENCODE_CONTENT_DOCUMENT=" +
+                  ("PRESENT" if len(virtual) == 1 else "ABSENT_OR_AMBIGUOUS"),
+                  flush=True)
+            demand(len(virtual) == 1, "OPENCODE_CONTENT_CONFIG_NOT_LOADED")
+            print("OPENCODE_CONFIG_ROUTE=CONTENT", flush=True)
+
         print("OPENCODE_EFFECTIVE_MCP_CONFIG=SERVER_PRESENT", flush=True)
 
         cmd = cli(["mcp", "list", "--standalone"], env, 45)
