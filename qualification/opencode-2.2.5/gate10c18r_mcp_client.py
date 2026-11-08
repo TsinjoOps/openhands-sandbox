@@ -54,9 +54,12 @@ class Rpc:
         self.send({"jsonrpc": "2.0", "id": mid, "method": method, "params": params})
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            require(self.proc.poll() is None, "GUARD_EXITED_EARLY")
+            # Drain a final already-buffered response even if the guard
+            # has exited; a process can close after writing its last line.
             wait = min(0.6, deadline - time.monotonic())
             events = self.selector.select(max(0.01, wait))
+            if not events and self.proc.poll() is not None:
+                raise RuntimeError("GUARD_EXITED_EARLY")
             for _, _ in events:
                 chunk = os.read(self.proc.stdout.fileno(), 4096)
                 require(chunk, "RPC_STDOUT_CLOSED")
