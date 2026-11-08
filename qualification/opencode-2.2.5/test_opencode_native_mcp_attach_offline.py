@@ -110,11 +110,32 @@ def main():
             decoded = json.loads(effective.stdout)
         except (ValueError, TypeError):
             raise RuntimeError("OPENCODE_DEBUG_CONFIG_NOT_JSON")
-        mcp = decoded.get("mcp") if isinstance(decoded, dict) else None
+        # Exact upstream 2.2.5 ConfigHandler.config.get returns Config.Entry[]:
+        # each item is a Document {type, path?, info} or a Directory.
+        # The previous fixture incorrectly assumed a top-level .mcp object.
+        if isinstance(decoded, list):
+            entries = decoded
+        elif isinstance(decoded, dict) and isinstance(decoded.get("data"), list):
+            # Tolerate an SDK response envelope without loosening document matching.
+            entries = decoded["data"]
+        else:
+            raise RuntimeError("OPENCODE_DEBUG_CONFIG_SHAPE")
+        print("OPENCODE_DEBUG_CONFIG_ENTRIES=PASS", flush=True)
+        documents = [
+            entry for entry in entries
+            if isinstance(entry, dict) and entry.get("type") == "document"
+            and entry.get("path") == str(config)
+        ]
+        print("OPENCODE_EXPLICIT_DOCUMENT=" +
+              ("PRESENT" if len(documents) == 1 else "ABSENT_OR_AMBIGUOUS"),
+              flush=True)
+        demand(len(documents) == 1, "OPENCODE_EXPLICIT_FILE_NOT_DISCOVERED")
+        info = documents[0].get("info")
+        mcp = info.get("mcp") if isinstance(info, dict) else None
         servers = mcp.get("servers") if isinstance(mcp, dict) else None
         demand(isinstance(servers, dict)
                and "github-readonly-probe" in servers,
-               "OPENCODE_EXPLICIT_CONFIG_NOT_LOADED")
+               "OPENCODE_EXPLICIT_MCP_ENTRY_NOT_LOADED")
         print("OPENCODE_EFFECTIVE_MCP_CONFIG=SERVER_PRESENT", flush=True)
 
         cmd = cli(["mcp", "list", "--standalone"], env, 45)
@@ -156,13 +177,20 @@ def main():
             if debug.returncode == 0:
                 try:
                     parsed = json.loads(debug.stdout)
-                    mcp = parsed.get("mcp") if isinstance(parsed, dict) else None
-                    servers = mcp.get("servers") if isinstance(mcp, dict) else None
-                    config_class = (
-                        "SERVER_PRESENT" if isinstance(servers, dict)
-                        and "github-readonly-probe" in servers
-                        else "MCP_ABSENT"
-                    )
+                    items = (parsed if isinstance(parsed, list)
+                             else parsed.get("data") if isinstance(parsed, dict)
+                             else None)
+                    config_class = "MCP_ABSENT"
+                    if isinstance(items, list):
+                        for entry in items:
+                            if not isinstance(entry, dict):
+                                continue
+                            info = entry.get("info")
+                            mcp = info.get("mcp") if isinstance(info, dict) else None
+                            servers = mcp.get("servers") if isinstance(mcp, dict) else None
+                            if isinstance(servers, dict) and "github-readonly-probe" in servers:
+                                config_class = "SERVER_PRESENT"
+                                break
                 except (ValueError, TypeError):
                     pass
             print("OPENCODE_EFFECTIVE_MCP_CONFIG=" + config_class, flush=True)
