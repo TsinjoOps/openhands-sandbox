@@ -23,6 +23,7 @@ CLIENT_NAME="tsinjoops-10c18p-client-$$"
 CREATED_IN=0
 CREATED_OUT=0
 CREATED_PROXY=0
+CLIENT_STARTED=0
 STAGE=""
 PROD_ID=""
 OVERLAY_ID=""
@@ -39,8 +40,8 @@ cleanup() {
   if [[ "$CREATED_OUT" = 1 ]]; then
     sudo -n docker network rm "$NET_OUT" >/dev/null 2>&1 || rc=1
   fi
-  # Also remove a potentially interrupted client, but only if this run created it.
-  if sudo -n docker container inspect "$CLIENT_NAME" >/dev/null 2>&1; then
+  # Never remove an unrelated pre-existing container after a name collision.
+  if [[ "$CLIENT_STARTED" = 1 ]] && sudo -n docker container inspect "$CLIENT_NAME" >/dev/null 2>&1; then
     sudo -n docker rm -f "$CLIENT_NAME" >/dev/null 2>&1 || rc=1
   fi
   if [[ -n "$STAGE" ]]; then rm -rf -- "$STAGE"; fi
@@ -129,6 +130,7 @@ test "$(sudo -n docker network inspect "$NET_OUT" --format '{{.EnableIPv6}}')" =
 echo "TEMP_NETWORK_TOPOLOGY=PASS"
 
 # Proxy starts on an otherwise empty, disposable egress bridge.
+CREATED_PROXY=1
 sudo -n docker run --detach --rm --pull never \
   --name "$PROXY_NAME" --network "$NET_OUT" \
   --label tsinjoops.gate=10c18p \
@@ -142,7 +144,6 @@ sudo -n docker run --detach --rm --pull never \
   --mount "type=bind,src=$STAGE/gate10c18p_connect_proxy.py,dst=/opt/gate10c18p_connect_proxy.py,readonly" \
   --entrypoint /usr/bin/python3 "$IMAGE" \
   -B /opt/gate10c18p_connect_proxy.py >/dev/null
-CREATED_PROXY=1
 sudo -n docker network connect --alias tsinjoops-github-egress \
   "$NET_IN" "$PROXY_NAME"
 
@@ -151,6 +152,7 @@ test "$(sudo -n docker inspect "$PROXY_NAME" --format '{{.State.Running}}')" = t
 echo "PROXY_DUAL_NETWORKS=PASS"
 
 # Client has ONLY the Docker internal bridge. No published ports/mounts from prod.
+CLIENT_STARTED=1
 sudo -n timeout --signal TERM --kill-after 5s 85s docker run \
   --rm --pull never --name "$CLIENT_NAME" --network "$NET_IN" \
   --label tsinjoops.gate=10c18p \
