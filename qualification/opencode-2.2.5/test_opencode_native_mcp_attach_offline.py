@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gate 10C.18l: OpenCode native local MCP connection using synthetic identity.
+"""Gate 10C.18l: OpenCode native MCP explicit-config attachment, synthetic identity.
 
 Run only in disposable, no-network, non-root image with pinned GitHub MCP binary
 mounted read-only. Never inject real GitHub/OpenRouter tokens into this test.
@@ -96,7 +96,27 @@ def main():
             }
         }, separators=(",", ":")), encoding="utf-8")
         config.chmod(0o600)
+        # Exact upstream server-process.ts wires this variable to config.file.
+        # Explicit file admission removes global-discovery ambiguity.
+        env["OPENCODE_CONFIG"] = str(config)
+        demand(config.is_file() and config.stat().st_mode & 0o777 == 0o600,
+               "SYNTHETIC_CONFIG_NOT_PRIVATE")
         print("SYNTHETIC_MCP_CONFIG=PASS", flush=True)
+
+        # Check effective configuration BEFORE attempting native connection.
+        effective = cli(["debug", "config", "--standalone"], env, 20)
+        demand(effective.returncode == 0, "OPENCODE_DEBUG_CONFIG_NONZERO")
+        try:
+            decoded = json.loads(effective.stdout)
+        except (ValueError, TypeError):
+            raise RuntimeError("OPENCODE_DEBUG_CONFIG_NOT_JSON")
+        mcp = decoded.get("mcp") if isinstance(decoded, dict) else None
+        servers = mcp.get("servers") if isinstance(mcp, dict) else None
+        demand(isinstance(servers, dict)
+               and "github-readonly-probe" in servers,
+               "OPENCODE_EXPLICIT_CONFIG_NOT_LOADED")
+        print("OPENCODE_EFFECTIVE_MCP_CONFIG=SERVER_PRESENT", flush=True)
+
         cmd = cli(["mcp", "list", "--standalone"], env, 45)
         output = cmd.stdout.strip()
         # Never echo raw CLI output: it can contain unrelated messages.
