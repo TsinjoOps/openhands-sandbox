@@ -31,7 +31,15 @@ OVERLAY_ID=""
 cleanup() {
   local rc=$?
   trap - EXIT INT TERM
-  if [[ "$CREATED_PROXY" = 1 ]]; then
+  # Stop the internal client before removing networks; --rm may still be
+  # completing asynchronously when the foreground docker command exits.
+  # Never remove names that predated this run.
+  if [[ "$CLIENT_STARTED" = 1 ]] &&
+     sudo -n docker container inspect "$CLIENT_NAME" >/dev/null 2>&1; then
+    sudo -n docker rm -f "$CLIENT_NAME" >/dev/null 2>&1 || rc=1
+  fi
+  if [[ "$CREATED_PROXY" = 1 ]] &&
+     sudo -n docker container inspect "$PROXY_NAME" >/dev/null 2>&1; then
     sudo -n docker rm -f "$PROXY_NAME" >/dev/null 2>&1 || rc=1
   fi
   if [[ "$CREATED_IN" = 1 ]]; then
@@ -39,10 +47,6 @@ cleanup() {
   fi
   if [[ "$CREATED_OUT" = 1 ]]; then
     sudo -n docker network rm "$NET_OUT" >/dev/null 2>&1 || rc=1
-  fi
-  # Never remove an unrelated pre-existing container after a name collision.
-  if [[ "$CLIENT_STARTED" = 1 ]] && sudo -n docker container inspect "$CLIENT_NAME" >/dev/null 2>&1; then
-    sudo -n docker rm -f "$CLIENT_NAME" >/dev/null 2>&1 || rc=1
   fi
   if [[ -n "$STAGE" ]]; then rm -rf -- "$STAGE"; fi
 
