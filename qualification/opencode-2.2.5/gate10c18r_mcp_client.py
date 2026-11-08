@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, "/usr/local/libexec/tsinjoops")
 from mcp_proxy_guard_candidate import EXPECTED
 
 GH_SERVER = Path("/usr/local/bin/github-mcp-server")
